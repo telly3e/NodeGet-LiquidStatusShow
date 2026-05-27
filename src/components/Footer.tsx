@@ -1,42 +1,45 @@
-import { useEffect, useState } from 'react'
-import { parseGitRepo } from "../utils/git"
-import { ExternalLink, HardDriveDownload, FolderSync } from 'lucide-react'
+const LIQUID_STATUS_REPO = 'https://github.com/telly3e/NodeGet-LiquidStatusShow.git'
 
+const footerLogos = [
+  {
+    name: 'Bitsflow',
+    src: `${import.meta.env.BASE_URL}footer-logos/bitsflow.png`,
+    className: 'h-5 w-auto max-w-[92px] object-contain',
+  },
+  {
+    name: 'DokiDoki CDN',
+    src: `${import.meta.env.BASE_URL}footer-logos/dokidoki-cdn.png`,
+    className: 'h-5 w-auto max-w-[100px] object-contain',
+  },
+  {
+    name: 'Cloudflare',
+    src: `${import.meta.env.BASE_URL}footer-logos/cloudflare.svg`,
+    className: 'h-4 w-auto max-w-[118px] object-contain dark:invert',
+  },
+]
 
-export function Footer({ text, repo, dist_page }: { text?: string, repo?: string, dist_page?: string }) {
-  const [latest, setLatest] = useState<string | null>(null)
-
-  const git = parseGitRepo(repo)
-  const PKG_URL = `https://raw.githubusercontent.com/${git.user}/${git.repo}/main/package.json`
-
-  useEffect(() => {
-    fetch(PKG_URL)
-      .then(r => (r.ok ? r.json() : null))
-      .then(j => j?.version && setLatest(String(j.version)))
-      .catch(() => { })
-  }, [])
-
-  const outdated = latest != null && latest !== __APP_VERSION__
-  const laststDist = dist_page ? `${dist_page}/NodeGet-StatusShow.zip?version=v${latest}` : repo + '/releases'
-
+export function Footer(_props: { text?: string, repo?: string, dist_page?: string }) {
   return (
     <footer className="border-t">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-end gap-3 text-xs text-muted-foreground">
-        <a href={repo} target="_blank" rel="noreferrer" className="hover:text-primary transition-colors mr-auto">
-          {text || 'Powered by NodeGet'}
+      <div className="mx-auto flex max-w-7xl items-center justify-center px-4 py-4 text-xs text-muted-foreground sm:px-6">
+        <a
+          href={LIQUID_STATUS_REPO}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center transition-colors hover:text-primary"
+        >
+          <span>This probe is powerfully driven by</span>
+          {footerLogos.map((logo, index) => (
+            <span key={logo.name} className="inline-flex items-center gap-2">
+              <img src={logo.src} alt={logo.name} className={logo.className} />
+              {index < footerLogos.length - 1 && (
+                <span className="text-muted-foreground/70">
+                  {index === footerLogos.length - 2 ? 'and' : ','}
+                </span>
+              )}
+            </span>
+          ))}
         </a>
-        <a href="download.html" target="_blank" rel="noreferrer" className="ml-2 flex items-center hover:text-primary transition-colors">
-          <HardDriveDownload className='inline-block w-3 mr-1' />
-          提取当前主题
-        </a>
-        {outdated && (
-          <>
-            <a href={laststDist} target="_blank" rel="noreferrer" className="flex items-center hover:text-primary transition-colors ml-2 text-destructive">
-              <FolderSync className='inline-block w-3 mr-1' />
-              升级到 v{latest}
-            </a>
-          </>
-        )}
       </div>
     </footer>
   )

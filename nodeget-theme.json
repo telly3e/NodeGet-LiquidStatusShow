@@ -3,7 +3,7 @@
   "short": "NodeGetBasic",
   "description": "NodeGet Basic Theme - a boilerplate for custom themes",
   "author": "NodeSeekDev",
-  "repository": "https://github.com/NodeSeekDev/NodeGet-StatusShow",
+  "repository": "https://github.com/telly3e/NodeGet-LiquidStatusShow.git",
   "dist_page": "https://nodeget.pages.dev",
   "user_preferences_form": {
     "version": "0.0.1",
@@ -26,7 +26,7 @@
         "key": "footer",
         "name": "Footer text",
         "type": "string",
-        "default": "Powered by NodeGet",
+        "default": "This probe is powerfully driven by Bitsflow, DokiDoki CDN, and Cloudflare",
         "help": "Enter footer text"
       },
       {
