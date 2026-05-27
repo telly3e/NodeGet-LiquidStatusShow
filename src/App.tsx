@@ -349,7 +349,7 @@ function ValueStatsCard({ nodes }: { nodes: Node[] }) {
   const yearlyRenewal = monthlyTotal * 12
 
   return (
-    <Card className="relative overflow-hidden bg-card/90 backdrop-blur border-border/70 p-4">
+    <Card className="liquid-card relative overflow-hidden p-4">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(hsl(var(--border)/0.18)_1px,transparent_1px),linear-gradient(90deg,hsl(var(--border)/0.14)_1px,transparent_1px)] bg-[size:22px_22px] opacity-20" />
       <div className="relative flex items-start gap-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-500">
@@ -361,7 +361,7 @@ function ValueStatsCard({ nodes }: { nodes: Node[] }) {
         </div>
       </div>
 
-      <div className="relative mt-4 rounded-md border border-dashed border-border/80 bg-muted/15 p-4">
+      <div className="glass-panel relative mt-4 rounded-md border border-dashed p-4">
         <ValueRow label="剩余价值" value={money(remain, unit)} strong />
         <ValueRow label="平均月续费" value={money(monthlyAverage, unit)} />
         <ValueRow label="年续费" value={money(yearlyRenewal, unit)} />
@@ -386,7 +386,7 @@ function SidebarMetricCard({
   caption: string
 }) {
   return (
-    <Card className="relative overflow-hidden bg-card/90 backdrop-blur border-border/70 p-4">
+    <Card className="liquid-card relative overflow-hidden p-4">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(hsl(var(--border)/0.16)_1px,transparent_1px),linear-gradient(90deg,hsl(var(--border)/0.12)_1px,transparent_1px)] bg-[size:22px_22px] opacity-20" />
       <div className="relative flex items-start gap-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-500">
@@ -404,7 +404,7 @@ function SidebarMetricCard({
 
 function ExpiringSoonCard({ items }: { items: Array<{ node: Node; days: number }> }) {
   return (
-    <Card className="relative overflow-hidden bg-card/90 backdrop-blur border-border/70 p-4">
+    <Card className="liquid-card relative overflow-hidden p-4">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(hsl(var(--border)/0.16)_1px,transparent_1px),linear-gradient(90deg,hsl(var(--border)/0.12)_1px,transparent_1px)] bg-[size:22px_22px] opacity-20" />
       <div className="relative flex items-start gap-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-500">

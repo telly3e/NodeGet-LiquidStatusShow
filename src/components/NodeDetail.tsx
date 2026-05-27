@@ -35,6 +35,20 @@ const TOOLTIP_STYLE = {
   fontSize: 11,
 }
 
+const LATENCY_ACTIVE_DOT = {
+  r: 3.5,
+  strokeWidth: 2,
+}
+
+const LATENCY_CHART_MAX_POINTS = 240
+
+const LATENCY_RANGES = [
+  { key: '1d', label: '1天', ms: 24 * 60 * 60 * 1000 },
+  { key: '7d', label: '7天', ms: 7 * 24 * 60 * 60 * 1000 },
+] as const
+
+type LatencyRangeKey = (typeof LATENCY_RANGES)[number]['key']
+
 interface Props {
   node: Node | null
   onClose: () => void
@@ -46,6 +60,8 @@ export function NodeDetail({ node, onClose, showSource, pool }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
   const [stuck, setStuck] = useState(false)
+  const [latencyRangeKey, setLatencyRangeKey] = useState<LatencyRangeKey>('1d')
+  const latencyRange = LATENCY_RANGES.find(range => range.key === latencyRangeKey) ?? LATENCY_RANGES[0]
 
   useEffect(() => {
     if (!node) return
@@ -77,6 +93,7 @@ export function NodeDetail({ node, onClose, showSource, pool }: Props) {
     pool,
     node?.source ?? null,
     node?.uuid ?? null,
+    latencyRange.ms,
   )
 
   if (!node) return null
@@ -200,13 +217,69 @@ export function NodeDetail({ node, onClose, showSource, pool }: Props) {
           </Section>
         )}
 
-        <LatencyBlock
-          title="TCP Ping"
-          rows={tcpData}
-          type="tcp_ping"
-          loading={latencyLoading}
-        />
-        <LatencyBlock title="Ping" rows={pingData} type="ping" loading={latencyLoading} />
+        {(latencyLoading || tcpData.length > 0 || pingData.length > 0) && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">延迟监控</div>
+              <div className="latency-range-toggle relative inline-grid grid-cols-2 overflow-hidden rounded-full p-1 text-xs">
+                <span
+                  className="latency-range-thumb absolute left-1 top-1 bottom-1 w-[calc(50%-0.25rem)] rounded-full transition-transform duration-300 ease-out"
+                  style={{
+                    transform:
+                      latencyRangeKey === '7d'
+                        ? 'translateX(100%)'
+                        : 'translateX(0)',
+                  }}
+                />
+                {LATENCY_RANGES.map(range => {
+                  const active = latencyRangeKey === range.key
+                  return (
+                    <button
+                      key={range.key}
+                      type="button"
+                      onClick={() => setLatencyRangeKey(range.key)}
+                      className={cn(
+                        'relative z-10 min-w-12 rounded-full px-3 py-1.5 font-medium transition-colors',
+                        active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      {range.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {latencyLoading && tcpData.length === 0 && pingData.length === 0 && (
+              <Section title={`最近 ${latencyRange.label}`}>
+                <div className="py-16 flex items-center justify-center text-xs text-muted-foreground">
+                  加载延迟数据中
+                </div>
+              </Section>
+            )}
+
+            {tcpData.length > 0 && (
+              <LatencyBlock
+                title="TCP Ping"
+                rows={tcpData}
+                type="tcp_ping"
+                loading={latencyLoading}
+                rangeLabel={latencyRange.label}
+                rangeMs={latencyRange.ms}
+              />
+            )}
+            {pingData.length > 0 && (
+              <LatencyBlock
+                title="Ping"
+                rows={pingData}
+                type="ping"
+                loading={latencyLoading}
+                rangeLabel={latencyRange.label}
+                rangeMs={latencyRange.ms}
+              />
+            )}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <Section title="系统">
@@ -367,12 +440,28 @@ interface LatencyBlockProps {
   rows: TaskQueryResult[]
   type: LatencyType
   loading: boolean
+  rangeLabel: string
+  rangeMs: number
 }
 
 const ms = (v: number) => `${v.toFixed(1)} ms`
 
-function LatencyBlock({ title, rows, type, loading }: LatencyBlockProps) {
-  const { data, series } = useMemo(() => buildLatencyChart(rows, type), [rows, type])
+function formatLatencyTick(t: number, rangeMs: number) {
+  const date = new Date(t)
+  if (rangeMs <= 60 * 60 * 1000) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+  if (rangeMs <= 24 * 60 * 60 * 1000) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+  return date.toLocaleDateString([], { month: 'numeric', day: 'numeric' })
+}
+
+function LatencyBlock({ title, rows, type, loading, rangeLabel, rangeMs }: LatencyBlockProps) {
+  const { data, series } = useMemo(
+    () => buildLatencyChart(rows, type, { maxPoints: LATENCY_CHART_MAX_POINTS }),
+    [rows, type],
+  )
   const stats = useMemo(() => computeLatencyStats(rows, type), [rows, type])
   const [hidden, setHidden] = useState<Set<string>>(() => new Set())
   const empty = data.length === 0
@@ -388,7 +477,7 @@ function LatencyBlock({ title, rows, type, loading }: LatencyBlockProps) {
     })
 
   return (
-    <Section title={`${title} · 近 1 小时`}>
+    <Section title={`${title} · 最近 ${rangeLabel}`}>
       <div className="relative h-60">
         {empty && (
           <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
@@ -403,7 +492,7 @@ function LatencyBlock({ title, rows, type, loading }: LatencyBlockProps) {
                 type="number"
                 domain={['dataMin', 'dataMax']}
                 scale="time"
-                tickFormatter={t => new Date(t).toLocaleTimeString()}
+                tickFormatter={t => formatLatencyTick(Number(t), rangeMs)}
                 tick={{ fontSize: 11 }}
                 stroke="hsl(var(--muted-foreground))"
               />
@@ -418,6 +507,7 @@ function LatencyBlock({ title, rows, type, loading }: LatencyBlockProps) {
                 contentStyle={TOOLTIP_STYLE}
                 labelFormatter={t => new Date(Number(t)).toLocaleTimeString()}
                 formatter={(v: number) => ms(Number(v))}
+                cursor={{ stroke: 'hsl(var(--muted-foreground))', strokeOpacity: 0.24 }}
               />
               {visibleSeries.map(s => (
                 <Line
@@ -427,6 +517,11 @@ function LatencyBlock({ title, rows, type, loading }: LatencyBlockProps) {
                   stroke={s.color}
                   strokeWidth={1.5}
                   dot={false}
+                  activeDot={{
+                    ...LATENCY_ACTIVE_DOT,
+                    fill: s.color,
+                    stroke: 'hsl(var(--background))',
+                  }}
                   connectNulls
                   isAnimationActive={false}
                 />

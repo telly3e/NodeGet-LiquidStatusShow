@@ -43,10 +43,10 @@ function Chip({
       type="button"
       onClick={onClick}
       className={cn(
-        'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full border transition-colors',
+        'liquid-chip inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full border transition-colors',
         selected
-          ? 'bg-primary text-primary-foreground border-primary'
-          : 'bg-card text-foreground/80 border-border hover:bg-accent',
+          ? 'liquid-chip-active text-primary-foreground'
+          : 'text-foreground/80',
       )}
     >
       {children}

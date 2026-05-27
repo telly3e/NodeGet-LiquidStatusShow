@@ -39,8 +39,8 @@ export function NodeCard({ node, pool }: { node: Node; pool: BackendPool | null 
     <a href={`#${encodeURIComponent(node.uuid)}`} className="block h-full">
       <Card
         className={cn(
-          'group relative h-full overflow-hidden p-4 transition hover:border-primary/45 hover:shadow-lg',
-          'bg-card/90 backdrop-blur border-border/70 flex flex-col gap-3.5',
+          'group relative h-full overflow-hidden p-4 transition',
+          'liquid-card flex flex-col gap-3.5',
           !node.online && 'opacity-60',
         )}
       >
@@ -57,7 +57,7 @@ export function NodeCard({ node, pool }: { node: Node; pool: BackendPool | null 
           <Flag code={node.meta?.region} className="shrink-0" />
         </div>
 
-        <div className="relative border-t border-dashed border-border/70 pt-3">
+        <div className="glass-divider relative border-t border-dashed pt-3">
           {(os || virt) && (
             <div className="truncate font-mono text-xs font-semibold text-muted-foreground">
               {[os, virt].filter(Boolean).join(' · ')}
@@ -93,7 +93,7 @@ export function NodeCard({ node, pool }: { node: Node; pool: BackendPool | null 
 
         <LatencyPanel latency={latency} loading={latencyLoading} />
 
-        <div className="relative mt-auto border-t border-dashed border-border/70 pt-3 font-mono text-xs">
+        <div className="glass-divider relative mt-auto border-t border-dashed pt-3 font-mono text-xs">
           <div className="flex items-center gap-4 text-muted-foreground">
             <Stat icon={ArrowDown}>{bytes(u.netIn || 0)}/s</Stat>
             <Stat icon={ArrowUp}>{bytes(u.netOut || 0)}/s</Stat>
@@ -164,19 +164,22 @@ function SegmentBar({
   const active = Math.round((safeValue / 100) * count)
   const color =
     accent === 'violet'
-      ? 'bg-violet-500'
+      ? { fill: 'bg-violet-500', end: 'bg-violet-300' }
       : accent === 'orange'
-        ? 'bg-orange-500'
+        ? { fill: 'bg-orange-500', end: 'bg-orange-300' }
         : accent === 'muted'
-          ? 'bg-muted-foreground'
-          : 'bg-primary'
+          ? { fill: 'bg-muted-foreground', end: 'bg-slate-300 dark:bg-slate-400' }
+          : { fill: 'bg-primary', end: 'bg-blue-300' }
 
   return (
     <div className="grid h-2 grid-cols-[repeat(18,minmax(0,1fr))] gap-1">
       {Array.from({ length: count }).map((_, i) => (
         <span
           key={i}
-          className={cn('rounded-sm bg-muted/70', i < active && color)}
+          className={cn(
+            'rounded-sm',
+            i < active ? (i === active - 1 ? color.end : color.fill) : 'segment-empty',
+          )}
         />
       ))}
     </div>
@@ -222,7 +225,7 @@ function LatencyPanel({ latency, loading }: { latency: FirstLatency | null; load
   const lossTone = lossRateTone(latency?.lossRate ?? 0)
 
   return (
-    <div className={cn('relative rounded-md border border-dashed bg-muted/15 p-3.5', lossTone.panelBorder)}>
+    <div className={cn('glass-panel relative rounded-md border border-dashed p-3.5', lossTone.panelBorder)}>
       <div className="mb-3 flex items-center gap-2">
         <Activity className={cn('h-4 w-4', avgTone.text)} />
         <span className="text-sm font-bold">延迟监控</span>

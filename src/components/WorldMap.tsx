@@ -358,7 +358,7 @@ function NodePopover({
   return (
     <div
       data-state={open ? 'open' : 'closed'}
-      className="absolute right-3 top-3 z-20 w-64 rounded-lg border border-border bg-popover text-popover-foreground shadow-xl overflow-hidden origin-top-right duration-150 fill-mode-forwards data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+      className="liquid-menu absolute right-3 top-3 z-20 w-64 rounded-lg border text-popover-foreground overflow-hidden origin-top-right duration-150 fill-mode-forwards data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
       onClick={e => e.stopPropagation()}
       onMouseDown={e => e.stopPropagation()}
     >
@@ -375,7 +375,7 @@ function NodePopover({
           <button
             onClick={onClose}
             aria-label="关闭"
-            className="-mr-1 h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent shrink-0"
+            className="liquid-mini-button -mr-1 h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:text-foreground shrink-0"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -387,7 +387,7 @@ function NodePopover({
               <button
                 key={n.uuid}
                 onClick={() => onPick(n.uuid)}
-                className="group w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent text-left transition-colors"
+                className="liquid-menu-item group w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors"
               >
                 <StatusDot online={n.online} className="w-1.5 h-1.5 ring-1" />
                 {logo && (

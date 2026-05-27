@@ -13,12 +13,12 @@ export function ViewToggle({ value, onChange }: { value: View; onChange: (v: Vie
 
   return (
     <div
-      className="relative inline-grid bg-muted p-1 rounded-md"
+      className="liquid-segmented relative inline-grid p-1 rounded-md"
       style={{ gridTemplateColumns: `repeat(${ITEMS.length}, 1fr)` }}
     >
       <div
         aria-hidden
-        className="absolute top-1 bottom-1 left-1 rounded-sm bg-background shadow transition-transform duration-200 ease-out"
+        className="liquid-segmented-thumb absolute top-1 bottom-1 left-1 rounded-sm transition-transform duration-300 ease-out"
         style={{
           width: `calc((100% - 0.5rem) / ${ITEMS.length})`,
           transform: `translateX(${idx * 100}%)`,

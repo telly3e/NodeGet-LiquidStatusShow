@@ -42,6 +42,10 @@ export interface ChartSeries {
   color: string
 }
 
+export interface LatencyChartOptions {
+  maxPoints?: number
+}
+
 function forwardFill(data: ChartPoint[], names: string[]) {
   const last: Record<string, number | null> = {}
   for (const n of names) last[n] = null
@@ -54,7 +58,40 @@ function forwardFill(data: ChartPoint[], names: string[]) {
   }
 }
 
-export function buildLatencyChart(rows: TaskQueryResult[], type: LatencyType) {
+function downsampleChartData(data: ChartPoint[], names: string[], maxPoints?: number) {
+  if (!maxPoints || data.length <= maxPoints) return data
+
+  const bucketLength = Math.ceil(data.length / maxPoints)
+  const sampled: ChartPoint[] = []
+
+  for (let i = 0; i < data.length; i += bucketLength) {
+    const bucket = data.slice(i, i + bucketLength)
+    const middle = bucket[Math.floor(bucket.length / 2)] ?? bucket[0]
+    const point: ChartPoint = { t: middle.t }
+
+    for (const name of names) {
+      let sum = 0
+      let count = 0
+      for (const row of bucket) {
+        const value = row[name]
+        if (value == null) continue
+        sum += value
+        count += 1
+      }
+      point[name] = count ? sum / count : null
+    }
+
+    sampled.push(point)
+  }
+
+  return sampled
+}
+
+export function buildLatencyChart(
+  rows: TaskQueryResult[],
+  type: LatencyType,
+  options: LatencyChartOptions = {},
+) {
   const names = seriesNames(rows)
   const series: ChartSeries[] = names.map(name => ({ name, color: latencyColor(name) }))
   const byTs = new Map<number, ChartPoint>()
@@ -70,8 +107,9 @@ export function buildLatencyChart(rows: TaskQueryResult[], type: LatencyType) {
     pt[r.cron_source || '未知'] = pickValue(r, type)
   }
 
-  const data = [...byTs.values()].sort((a, b) => a.t - b.t)
+  let data = [...byTs.values()].sort((a, b) => a.t - b.t)
   forwardFill(data, names)
+  data = downsampleChartData(data, names, options.maxPoints)
   return { data, series }
 }
 

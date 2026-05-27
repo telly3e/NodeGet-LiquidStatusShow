@@ -3,8 +3,9 @@ import { taskQuery } from '../api/methods'
 import type { BackendPool } from '../api/pool'
 import type { TaskQueryResult } from '../types'
 
-const WINDOW_MS = 60 * 60 * 1000
-const REFRESH_MS = 10_000
+const DEFAULT_WINDOW_MS = 60 * 60 * 1000
+const FAST_REFRESH_MS = 10_000
+const SLOW_REFRESH_MS = 60_000
 const QUERY_TIMEOUT_MS = 20_000
 
 function clean(rows: TaskQueryResult[] | undefined): TaskQueryResult[] {
@@ -17,6 +18,7 @@ export function useNodeLatency(
   pool: BackendPool | null,
   source: string | null,
   uuid: string | null,
+  windowMs = DEFAULT_WINDOW_MS,
 ) {
   const [pingData, setPingData] = useState<TaskQueryResult[]>([])
   const [tcpData, setTcpData] = useState<TaskQueryResult[]>([])
@@ -34,7 +36,7 @@ export function useNodeLatency(
 
     const fetchOnce = async () => {
       const now = Date.now()
-      const window: [number, number] = [now - WINDOW_MS, now]
+      const window: [number, number] = [now - windowMs, now]
       setLoading(true)
 
       const [ping, tcp] = await Promise.allSettled([
@@ -57,12 +59,13 @@ export function useNodeLatency(
     }
 
     fetchOnce()
-    const timer = setInterval(fetchOnce, REFRESH_MS)
+    const refreshMs = windowMs > DEFAULT_WINDOW_MS ? SLOW_REFRESH_MS : FAST_REFRESH_MS
+    const timer = setInterval(fetchOnce, refreshMs)
     return () => {
       cancelled = true
       clearInterval(timer)
     }
-  }, [pool, source, uuid])
+  }, [pool, source, uuid, windowMs])
 
   return { pingData, tcpData, loading }
 }
