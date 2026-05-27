@@ -74,50 +74,96 @@
 }
 
 .bg-soft {
-  background-color: hsl(220 33% 98%);
-  background-image:
-    radial-gradient(60rem 36rem at 12% -10%, rgba(99, 102, 241, 0.16), transparent 60%),
-    radial-gradient(48rem 32rem at 95% 0%, rgba(56, 189, 248, 0.18), transparent 60%),
-    radial-gradient(42rem 28rem at 85% 95%, rgba(244, 114, 182, 0.12), transparent 60%),
-    radial-gradient(38rem 30rem at 5% 90%, rgba(34, 197, 94, 0.10), transparent 60%);
-  background-attachment: fixed;
+  background-color: #e7ebf1;
+  overflow: hidden;
+  transition: background-color 600ms ease;
 }
 
 .dark .bg-soft {
-  background-color: #0b0f14;
-  background-image:
-    radial-gradient(1200px 800px at 80% 10%, rgba(124, 58, 237, 0.25), transparent 60%),
-    radial-gradient(1000px 700px at 10% 90%, rgba(6, 182, 212, 0.22), transparent 55%),
-    linear-gradient(#0b0f14, #0b0f14);
-  background-attachment: fixed;
+  background-color: #050509;
 }
 
-.starfield {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  contain: strict;
-}
-
-.star {
+.mesh-layer {
   position: absolute;
   border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.95);
-  opacity: 0.8;
-  transform-origin: center;
-  animation: twinkle infinite ease-in-out;
-  box-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
-  will-change: transform, opacity;
+  filter: blur(86px);
+  opacity: 0.54;
+  pointer-events: none;
+  transform: translate3d(0, 0, 0);
+  transition:
+    background 600ms ease,
+    opacity 600ms ease,
+    filter 600ms ease;
+  will-change: transform;
 }
 
-@keyframes twinkle {
-  0%,
-  100% {
-    opacity: 0.28;
-  }
-  50% {
-    opacity: 1;
+.mesh-layer-a {
+  width: min(68vw, 880px);
+  height: min(68vw, 880px);
+  left: -18vw;
+  top: -20vh;
+  background: #ff2a5f;
+  animation: mesh-drift-a 24s infinite alternate cubic-bezier(0.45, 0.05, 0.55, 0.95);
+}
+
+.mesh-layer-b {
+  width: min(62vw, 800px);
+  height: min(62vw, 800px);
+  right: -18vw;
+  bottom: -22vh;
+  background: #007aff;
+  animation: mesh-drift-b 28s -7s infinite alternate cubic-bezier(0.45, 0.05, 0.55, 0.95);
+}
+
+.mesh-layer-c {
+  width: min(48vw, 640px);
+  height: min(48vw, 640px);
+  left: 38vw;
+  top: 30vh;
+  background: #ff9500;
+  opacity: 0.42;
+  animation: mesh-drift-c 30s -13s infinite alternate cubic-bezier(0.45, 0.05, 0.55, 0.95);
+}
+
+.dark .mesh-layer {
+  opacity: 0.44;
+  filter: blur(96px);
+}
+
+.dark .mesh-layer-a {
+  background: #bf5af2;
+}
+
+.dark .mesh-layer-b {
+  background: #0a84ff;
+}
+
+.dark .mesh-layer-c {
+  background: #ff375f;
+  opacity: 0.34;
+}
+
+@keyframes mesh-drift-a {
+  0% { transform: translate3d(0, 0, 0) scale(1) rotate(0deg); }
+  50% { transform: translate3d(8vw, 10vh, 0) scale(1.06) rotate(8deg); }
+  100% { transform: translate3d(3vw, -6vh, 0) scale(1.12) rotate(-4deg); }
+}
+
+@keyframes mesh-drift-b {
+  0% { transform: translate3d(0, 0, 0) scale(1.05) rotate(0deg); }
+  50% { transform: translate3d(-9vw, -8vh, 0) scale(0.96) rotate(-7deg); }
+  100% { transform: translate3d(-2vw, 7vh, 0) scale(1.1) rotate(5deg); }
+}
+
+@keyframes mesh-drift-c {
+  0% { transform: translate3d(0, 0, 0) scale(0.98) rotate(0deg); }
+  50% { transform: translate3d(-5vw, 6vh, 0) scale(1.08) rotate(9deg); }
+  100% { transform: translate3d(6vw, -4vh, 0) scale(1.02) rotate(-6deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mesh-layer {
+    animation: none;
   }
 }
 
