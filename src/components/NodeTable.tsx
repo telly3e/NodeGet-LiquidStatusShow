@@ -16,13 +16,13 @@ interface Props {
 
 export function NodeTable({ nodes, onOpen }: Props) {
   return (
-    <Card className="overflow-hidden">
-      <Table>
+    <Card className="liquid-card liquid-card-static relative overflow-hidden">
+      <Table className="relative z-[1]">
         <TableHeader>
           <TableRow>
             <TableHead className="w-8" />
             <TableHead>名称</TableHead>
-            <TableHead className="w-12 text-center">地区</TableHead>
+            <TableHead className="w-20 min-w-[5rem] text-center whitespace-nowrap">地区</TableHead>
             <TableHead>架构</TableHead>
             <TableHead>CPU</TableHead>
             <TableHead>内存</TableHead>

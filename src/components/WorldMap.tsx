@@ -13,9 +13,9 @@ const TINY_DEG = 2
 const GEO_URL = `${import.meta.env.BASE_URL}world.geo.json`
 
 const HEAT = [
-  [254, 215, 170],
-  [251, 146, 60],
-  [194, 65, 12],
+  [187, 247, 208],
+  [74, 222, 128],
+  [22, 101, 52],
 ]
 
 const cnameMap = new Map<string, string>()
@@ -110,6 +110,7 @@ export function WorldMap({ nodes, onOpen }: Props) {
   const [error, setError] = useState<Error | null>(null)
   const [pickedA2, setPickedA2] = useState<string | null>(null)
   const [renderA2, setRenderA2] = useState<string | null>(null)
+  const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'))
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<echarts.ECharts | null>(null)
 
@@ -135,6 +136,15 @@ export function WorldMap({ nodes, onOpen }: Props) {
       return () => clearTimeout(t)
     }
   }, [pickedA2, renderA2])
+
+  useEffect(() => {
+    const root = document.documentElement
+    const update = () => setDark(root.classList.contains('dark'))
+    const observer = new MutationObserver(update)
+    observer.observe(root, { attributes: true, attributeFilter: ['class'] })
+    update()
+    return () => observer.disconnect()
+  }, [])
 
   const { byCountry, total } = useMemo(() => {
     const map = new Map<string, CountryEntry>()
@@ -166,7 +176,7 @@ export function WorldMap({ nodes, onOpen }: Props) {
     liveRef.current = { byCountry, onOpen }
   })
 
-  const option = useMemo(() => buildOption(byCountry), [dataSig])
+  const option = useMemo(() => buildOption(byCountry, dark), [dataSig, dark])
 
   useEffect(() => {
     if (!ready || !wrapRef.current) return
@@ -200,13 +210,13 @@ export function WorldMap({ nodes, onOpen }: Props) {
   const renderEntry = renderA2 ? byCountry.get(renderA2) ?? null : null
 
   return (
-    <Card className="p-3 sm:p-4">
-      <div className="flex items-center mb-3 px-1">
+    <Card className="liquid-card liquid-card-static relative overflow-hidden p-3 sm:p-4">
+      <div className="relative z-[1] flex items-center mb-3 px-1">
         <div className="text-sm font-semibold text-foreground/90">地理位置</div>
       </div>
 
       <div
-        className="relative w-full overflow-hidden rounded-md border border-border/60 bg-[hsl(220_15%_8%)]"
+        className="glass-panel relative z-[1] w-full overflow-hidden rounded-md border bg-[rgba(15,23,42,0.74)] dark:bg-[rgba(2,6,23,0.56)]"
         style={{ aspectRatio: `${MAP_W} / ${MAP_H}` }}
       >
         <div ref={wrapRef} className="absolute inset-0" />
@@ -238,7 +248,7 @@ export function WorldMap({ nodes, onOpen }: Props) {
           />
         )}
 
-        <div className="absolute bottom-3 right-4 z-10 font-mono text-sm font-semibold tracking-wider text-white/85 pointer-events-none uppercase">
+        <div className="liquid-mini-button absolute bottom-3 right-4 z-10 rounded-md px-2.5 py-1 font-mono text-sm font-semibold tracking-wider text-foreground pointer-events-none uppercase">
           {total} nodes
         </div>
       </div>
@@ -246,10 +256,11 @@ export function WorldMap({ nodes, onOpen }: Props) {
   )
 }
 
-function buildOption(byCountry: Map<string, CountryEntry>) {
+function buildOption(byCountry: Map<string, CountryEntry>, dark: boolean) {
   const entries = [...byCountry.entries()].filter(([a2]) => knownA2.has(a2))
   const data = entries.map(([a2, e]) => ({ name: a2, value: e.online + e.offline }))
   const max = data.reduce((m, d) => Math.max(m, d.value), 0)
+  const visualTextColor = dark ? 'rgba(255,255,255,0.82)' : 'rgba(15,23,42,0.82)'
   const tinyMarkers = entries
     .map(([a2, e]) => {
       const c = tinyCenter.get(a2)
@@ -266,7 +277,7 @@ function buildOption(byCountry: Map<string, CountryEntry>) {
           borderColor: 'rgba(20,22,28,0.85)',
           borderWidth: 0.8,
           shadowBlur: 8,
-          shadowColor: 'rgba(251,146,60,0.45)',
+          shadowColor: 'rgba(34,197,94,0.42)',
         },
       }
     })
@@ -286,10 +297,11 @@ function buildOption(byCountry: Map<string, CountryEntry>) {
       itemHeight: 90,
       orient: 'horizontal' as const,
       text: ['多', '少'],
-      textStyle: { color: 'rgba(255,255,255,0.55)', fontSize: 10 },
-      inRange: { color: ['#fed7aa', '#fb923c', '#c2410c'] },
+      textStyle: { color: visualTextColor, fontSize: 10, fontWeight: 600 },
+      inRange: { color: ['#bbf7d0', '#4ade80', '#166534'] },
       outOfRange: { color: 'rgba(148,163,184,0.16)' },
       calculable: false,
+      hoverLink: true,
     },
     tooltip: {
       trigger: 'item' as const,
@@ -326,7 +338,7 @@ function buildOption(byCountry: Map<string, CountryEntry>) {
         },
         emphasis: {
           label: { show: false },
-          itemStyle: { areaColor: '#fb923c' },
+          itemStyle: { areaColor: '#22c55e' },
         },
         label: { show: false },
         data,

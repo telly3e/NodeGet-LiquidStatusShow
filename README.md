@@ -43,7 +43,13 @@ Fork本仓库, 然后在cloudflare pages / vercel 直接部署，绑定域名
   "user_preferences":{
     "site_name": "NodeGet Status",
     "site_logo": "",
-    "footer": "Powered by NodeGet"
+    "footer": "Powered by NodeGet",
+    "dashboard_url": "https://dash.nodeget.com/",
+    "show_sponsored_footer": true,
+    "show_value_stats_card": true,
+    "show_online_total_card": true,
+    "show_expiring_7_days_card": true,
+    "show_expiring_soon_card": true
   },
   "site_tokens": [
     {
@@ -67,6 +73,12 @@ Fork本仓库, 然后在cloudflare pages / vercel 直接部署，绑定域名
 SITE_NAME=狼牙的探针
 SITE_LOGO=https://example.com/logo.png
 SITE_FOOTER=Powered by NodeGet
+SITE_DASHBOARD_URL=https://dash.nodeget.com/
+SITE_SHOW_SPONSORED_FOOTER=true
+SITE_SHOW_VALUE_STATS_CARD=true
+SITE_SHOW_ONLINE_TOTAL_CARD=true
+SITE_SHOW_EXPIRING_7_DAYS_CARD=true
+SITE_SHOW_EXPIRING_SOON_CARD=true
 SITE_1=name="master-1",backend_url="wss://m1.example.com",token="abc123"
 SITE_2=name="master-2",backend_url="wss://m2.example.com",token="xyz789" 
 ```

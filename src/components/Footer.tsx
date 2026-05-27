@@ -1,16 +1,43 @@
-const LIQUID_STATUS_REPO = 'https://github.com/telly3e/NodeGet-LiquidStatusShow.git'
+const DEFAULT_REPO = 'https://github.com/telly3e/NodeGet-LiquidStatusShow.git'
+const DEFAULT_FOOTER = 'Powered by NodeGet'
 const BITSFLOW_URL = 'https://ccp.bitsflow.cloud/order/forms/a/MzM2Nw=='
 const DOKIDOKI_CDN_URL = 'https://www.dooki.cloud/'
 const CLOUDFLARE_URL = 'https://www.cloudflare.com/'
 
-export function Footer(_props: { text?: string, repo?: string, dist_page?: string }) {
+export function Footer({
+  text,
+  repo,
+  sponsored = true,
+}: {
+  text?: string
+  repo?: string
+  dist_page?: string
+  sponsored?: boolean
+}) {
+  if (!sponsored) {
+    return (
+      <footer className="border-t">
+        <div className="mx-auto flex max-w-7xl items-center justify-center px-4 py-4 text-xs text-muted-foreground sm:px-6">
+          <a
+            href={repo || DEFAULT_REPO}
+            target="_blank"
+            rel="noreferrer"
+            className="text-center transition-colors hover:text-primary"
+          >
+            {text || DEFAULT_FOOTER}
+          </a>
+        </div>
+      </footer>
+    )
+  }
+
   return (
     <footer className="border-t">
       <div className="mx-auto flex max-w-7xl items-center justify-center px-4 py-4 text-xs text-muted-foreground sm:px-6">
         <div className="inline-flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center">
           <span>This probe is powerfully driven by</span>
           <a
-            href={LIQUID_STATUS_REPO}
+            href={repo || DEFAULT_REPO}
             target="_blank"
             rel="noreferrer"
             className="font-medium text-black"

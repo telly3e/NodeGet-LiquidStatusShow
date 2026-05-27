@@ -39,6 +39,14 @@ function readHash() {
 }
 
 const num = (v?: number) => (Number.isFinite(v) ? (v as number) : -Infinity)
+const enabled = (value?: boolean) => value !== false
+
+interface SidebarCardVisibility {
+  valueStats: boolean
+  onlineTotal: boolean
+  expiring7Days: boolean
+  expiringSoon: boolean
+}
 
 function money(value: number, unit: string) {
   const code = unit.trim()
@@ -215,6 +223,13 @@ export function App() {
   const logo = config.user_preferences.site_logo || DEFAULT_LOGO
   const empty = list.length === 0
   const hasErrors = errors.length > 0
+  const sidebarVisibility: SidebarCardVisibility = {
+    valueStats: enabled(config.user_preferences.show_value_stats_card),
+    onlineTotal: enabled(config.user_preferences.show_online_total_card),
+    expiring7Days: enabled(config.user_preferences.show_expiring_7_days_card),
+    expiringSoon: enabled(config.user_preferences.show_expiring_soon_card),
+  }
+  const showSidebar = Object.values(sidebarVisibility).some(Boolean)
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -254,13 +269,15 @@ export function App() {
         )}
 
         {!empty && view === 'cards' && (
-          <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-4 items-start">
-            <aside className="hidden space-y-4 lg:block">
-              <ValueSidebar nodes={costNodes} />
-            </aside>
+          <div className={showSidebar ? 'grid grid-cols-1 gap-4 items-start lg:grid-cols-[260px_minmax(0,1fr)]' : 'grid grid-cols-1 gap-4 items-start'}>
+            {showSidebar && (
+              <aside className="hidden space-y-4 lg:block">
+                <ValueSidebar nodes={costNodes} visibility={sidebarVisibility} />
+              </aside>
+            )}
             <div className="grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))] gap-4">
               {list.map(n => (
-                <NodeCard key={n.uuid} node={n} pool={pool} />
+                <NodeCard key={n.uuid} node={n} />
               ))}
             </div>
           </div>
@@ -296,7 +313,12 @@ export function App() {
         )}
       </main>
 
-      <Footer text={config.user_preferences.footer} repo={config.repository} dist_page={config.dist_page}/>
+      <Footer
+        text={config.user_preferences.footer}
+        repo={config.repository}
+        dist_page={config.dist_page}
+        sponsored={enabled(config.user_preferences.show_sponsored_footer)}
+      />
 
       <NodeDetail
         node={selectedNode}
@@ -308,7 +330,7 @@ export function App() {
   )
 }
 
-function ValueSidebar({ nodes }: { nodes: Node[] }) {
+function ValueSidebar({ nodes, visibility }: { nodes: Node[]; visibility: SidebarCardVisibility }) {
   const total = nodes.length
   const online = nodes.filter(node => node.online).length
   const expiring = nodes
@@ -319,20 +341,24 @@ function ValueSidebar({ nodes }: { nodes: Node[] }) {
 
   return (
     <>
-      <ValueStatsCard nodes={nodes} />
-      <SidebarMetricCard
-        icon={<Server className="h-4 w-4" />}
-        title="在线 / 总节点"
-        value={`${online} / ${total}`}
-        caption="当前可见节点"
-      />
-      <SidebarMetricCard
-        icon={<AlertTriangle className="h-4 w-4" />}
-        title="7 天内到期"
-        value={String(expiringWithin7.length)}
-        caption="建议优先关注"
-      />
-      <ExpiringSoonCard items={expiring.slice(0, 4)} />
+      {visibility.valueStats && <ValueStatsCard nodes={nodes} />}
+      {visibility.onlineTotal && (
+        <SidebarMetricCard
+          icon={<Server className="h-4 w-4" />}
+          title="在线 / 总节点"
+          value={`${online} / ${total}`}
+          caption="当前可见节点"
+        />
+      )}
+      {visibility.expiring7Days && (
+        <SidebarMetricCard
+          icon={<AlertTriangle className="h-4 w-4" />}
+          title="7 天内到期"
+          value={String(expiringWithin7.length)}
+          caption="建议优先关注"
+        />
+      )}
+      {visibility.expiringSoon && <ExpiringSoonCard items={expiring.slice(0, 4)} />}
     </>
   )
 }
@@ -349,7 +375,7 @@ function ValueStatsCard({ nodes }: { nodes: Node[] }) {
   const yearlyRenewal = monthlyTotal * 12
 
   return (
-    <Card className="liquid-card relative overflow-hidden p-4">
+    <Card className="liquid-card liquid-card-static relative overflow-hidden p-4">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(hsl(var(--border)/0.18)_1px,transparent_1px),linear-gradient(90deg,hsl(var(--border)/0.14)_1px,transparent_1px)] bg-[size:22px_22px] opacity-20" />
       <div className="relative flex items-start gap-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-500">
@@ -386,7 +412,7 @@ function SidebarMetricCard({
   caption: string
 }) {
   return (
-    <Card className="liquid-card relative overflow-hidden p-4">
+    <Card className="liquid-card liquid-card-static relative overflow-hidden p-4">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(hsl(var(--border)/0.16)_1px,transparent_1px),linear-gradient(90deg,hsl(var(--border)/0.12)_1px,transparent_1px)] bg-[size:22px_22px] opacity-20" />
       <div className="relative flex items-start gap-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-500">
@@ -404,7 +430,7 @@ function SidebarMetricCard({
 
 function ExpiringSoonCard({ items }: { items: Array<{ node: Node; days: number }> }) {
   return (
-    <Card className="liquid-card relative overflow-hidden p-4">
+    <Card className="liquid-card liquid-card-static relative overflow-hidden p-4">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(hsl(var(--border)/0.16)_1px,transparent_1px),linear-gradient(90deg,hsl(var(--border)/0.12)_1px,transparent_1px)] bg-[size:22px_22px] opacity-20" />
       <div className="relative flex items-start gap-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-500">

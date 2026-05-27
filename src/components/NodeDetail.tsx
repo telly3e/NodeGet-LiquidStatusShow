@@ -42,12 +42,7 @@ const LATENCY_ACTIVE_DOT = {
 
 const LATENCY_CHART_MAX_POINTS = 240
 
-const LATENCY_RANGES = [
-  { key: '1d', label: '1天', ms: 24 * 60 * 60 * 1000 },
-  { key: '7d', label: '7天', ms: 7 * 24 * 60 * 60 * 1000 },
-] as const
-
-type LatencyRangeKey = (typeof LATENCY_RANGES)[number]['key']
+const LATENCY_RANGE = { label: '6h', ms: 6 * 60 * 60 * 1000 } as const
 
 interface Props {
   node: Node | null
@@ -60,8 +55,6 @@ export function NodeDetail({ node, onClose, showSource, pool }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
   const [stuck, setStuck] = useState(false)
-  const [latencyRangeKey, setLatencyRangeKey] = useState<LatencyRangeKey>('1d')
-  const latencyRange = LATENCY_RANGES.find(range => range.key === latencyRangeKey) ?? LATENCY_RANGES[0]
 
   useEffect(() => {
     if (!node) return
@@ -93,7 +86,7 @@ export function NodeDetail({ node, onClose, showSource, pool }: Props) {
     pool,
     node?.source ?? null,
     node?.uuid ?? null,
-    latencyRange.ms,
+    LATENCY_RANGE.ms,
   )
 
   if (!node) return null
@@ -221,37 +214,11 @@ export function NodeDetail({ node, onClose, showSource, pool }: Props) {
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
               <div className="text-xs uppercase tracking-wide text-muted-foreground">延迟监控</div>
-              <div className="latency-range-toggle relative inline-grid grid-cols-2 overflow-hidden rounded-full p-1 text-xs">
-                <span
-                  className="latency-range-thumb absolute left-1 top-1 bottom-1 w-[calc(50%-0.25rem)] rounded-full transition-transform duration-300 ease-out"
-                  style={{
-                    transform:
-                      latencyRangeKey === '7d'
-                        ? 'translateX(100%)'
-                        : 'translateX(0)',
-                  }}
-                />
-                {LATENCY_RANGES.map(range => {
-                  const active = latencyRangeKey === range.key
-                  return (
-                    <button
-                      key={range.key}
-                      type="button"
-                      onClick={() => setLatencyRangeKey(range.key)}
-                      className={cn(
-                        'relative z-10 min-w-12 rounded-full px-3 py-1.5 font-medium transition-colors',
-                        active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-                      )}
-                    >
-                      {range.label}
-                    </button>
-                  )
-                })}
-              </div>
+              <div className="font-mono text-xs text-muted-foreground">最近 {LATENCY_RANGE.label}</div>
             </div>
 
             {latencyLoading && tcpData.length === 0 && pingData.length === 0 && (
-              <Section title={`最近 ${latencyRange.label}`}>
+              <Section title={`最近 ${LATENCY_RANGE.label}`}>
                 <div className="py-16 flex items-center justify-center text-xs text-muted-foreground">
                   加载延迟数据中
                 </div>
@@ -264,8 +231,8 @@ export function NodeDetail({ node, onClose, showSource, pool }: Props) {
                 rows={tcpData}
                 type="tcp_ping"
                 loading={latencyLoading}
-                rangeLabel={latencyRange.label}
-                rangeMs={latencyRange.ms}
+                rangeLabel={LATENCY_RANGE.label}
+                rangeMs={LATENCY_RANGE.ms}
               />
             )}
             {pingData.length > 0 && (
@@ -274,8 +241,8 @@ export function NodeDetail({ node, onClose, showSource, pool }: Props) {
                 rows={pingData}
                 type="ping"
                 loading={latencyLoading}
-                rangeLabel={latencyRange.label}
-                rangeMs={latencyRange.ms}
+                rangeLabel={LATENCY_RANGE.label}
+                rangeMs={LATENCY_RANGE.ms}
               />
             )}
           </div>
@@ -446,6 +413,13 @@ interface LatencyBlockProps {
 
 const ms = (v: number) => `${v.toFixed(1)} ms`
 
+function formatDuration(msValue: number) {
+  const minutes = Math.max(1, Math.round(msValue / 60_000))
+  if (minutes < 60) return `${minutes}m`
+  const hours = minutes / 60
+  return hours >= 10 ? `${Math.round(hours)}h` : `${hours.toFixed(1)}h`
+}
+
 function formatLatencyTick(t: number, rangeMs: number) {
   const date = new Date(t)
   if (rangeMs <= 60 * 60 * 1000) {
@@ -465,6 +439,11 @@ function LatencyBlock({ title, rows, type, loading, rangeLabel, rangeMs }: Laten
   const stats = useMemo(() => computeLatencyStats(rows, type), [rows, type])
   const [hidden, setHidden] = useState<Set<string>>(() => new Set())
   const empty = data.length === 0
+  const latestTs = data.at(-1)?.t ?? Date.now()
+  const requestedStart = latestTs - rangeMs
+  const actualStart = data[0]?.t
+  const actualSpan =
+    actualStart != null && data.length > 1 ? Math.max(0, latestTs - actualStart) : 0
 
   const visibleSeries = series.filter(s => !hidden.has(s.name))
 
@@ -490,7 +469,7 @@ function LatencyBlock({ title, rows, type, loading, rangeLabel, rangeMs }: Laten
               <XAxis
                 dataKey="t"
                 type="number"
-                domain={['dataMin', 'dataMax']}
+                domain={[requestedStart, latestTs]}
                 scale="time"
                 tickFormatter={t => formatLatencyTick(Number(t), rangeMs)}
                 tick={{ fontSize: 11 }}
@@ -536,6 +515,9 @@ function LatencyBlock({ title, rows, type, loading, rangeLabel, rangeMs }: Laten
 
       {stats.length > 0 && (
         <div className="mt-3 border-t pt-3">
+          <div className="px-2 pb-2 text-[11px] text-muted-foreground">
+            {rows.length} samples · actual span {formatDuration(actualSpan)}
+          </div>
           <div className="flex items-center px-2 pb-1 text-[11px] text-muted-foreground">
             <span className="flex-1">来源</span>
             <span className="w-20 text-right">平均延迟</span>

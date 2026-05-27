@@ -20,8 +20,16 @@ function parseSiteEnv(rawEnv) {
 
 function removeEmptyValue(obj) {
   return Object.fromEntries(
-    Object.entries(obj).filter(([, v]) => !!v)
+    Object.entries(obj).filter(([, v]) => v !== undefined && v !== null && v !== '')
   )
+}
+
+function parseBooleanEnv(value) {
+  if (value === undefined || value === null || value === '') return undefined
+  const normalized = String(value).trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+  return undefined
 }
 
 export function buildEnvConfigOld() {
@@ -44,7 +52,12 @@ export function buildEnvConfigOld() {
       site_name: process.env.SITE_NAME,
       site_logo: process.env.SITE_LOGO,
       footer: process.env.SITE_FOOTER,
-      dashboard_url: process.env.SITE_DASHBOARD_URL || process.env.DASHBOARD_URL
+      dashboard_url: process.env.SITE_DASHBOARD_URL || process.env.DASHBOARD_URL,
+      show_sponsored_footer: parseBooleanEnv(process.env.SITE_SHOW_SPONSORED_FOOTER),
+      show_value_stats_card: parseBooleanEnv(process.env.SITE_SHOW_VALUE_STATS_CARD),
+      show_online_total_card: parseBooleanEnv(process.env.SITE_SHOW_ONLINE_TOTAL_CARD),
+      show_expiring_7_days_card: parseBooleanEnv(process.env.SITE_SHOW_EXPIRING_7_DAYS_CARD),
+      show_expiring_soon_card: parseBooleanEnv(process.env.SITE_SHOW_EXPIRING_SOON_CARD)
     }),
     site_tokens: siteTokens
   }
