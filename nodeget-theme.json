@@ -26,14 +26,14 @@
         "key": "footer",
         "name": "Footer text",
         "type": "string",
-        "default": "This probe is powerfully driven by Bitsflow, DokiDoki CDN, and Cloudflare",
+        "default": "Powered by NodeGet",
         "help": "Enter footer text"
       },
       {
         "key": "dashboard_url",
         "name": "Dashboard URL",
         "type": "string",
-        "default": "",
+        "default": "https://dash.oak.moe",
         "help": "Node management dashboard URL. Leave empty to hide the settings button."
       }
     ]
