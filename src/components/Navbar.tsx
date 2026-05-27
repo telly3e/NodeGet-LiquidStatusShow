@@ -52,7 +52,7 @@ export function Navbar({
   return (
     <header
       ref={headerRef}
-      className={`sticky top-0 z-10 transition-[background-color,backdrop-filter,border-color] duration-200 ${
+      className={`sticky top-0 z-50 transition-[background-color,backdrop-filter,border-color] duration-200 ${
         stuck
           ? 'border-b border-border/40 backdrop-blur bg-background/70'
           : 'border-b border-transparent'

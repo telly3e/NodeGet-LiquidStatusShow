@@ -108,6 +108,10 @@ export interface UserConfig {
     site_logo?: string
     footer?: string
     dashboard_url?: string
+    show_value_stats_card?: boolean
+    show_online_total_card?: boolean
+    show_expiring_7_days_card?: boolean
+    show_expiring_soon_card?: boolean
   },
   site_tokens: { 
     name: string; 

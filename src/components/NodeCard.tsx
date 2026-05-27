@@ -1,5 +1,4 @@
 import {
-  Activity,
   ArrowDown,
   ArrowUp,
   Clock,
@@ -7,33 +6,24 @@ import {
   Gauge,
   HardDrive,
   MemoryStick,
-  RadioTower,
   type LucideIcon,
 } from 'lucide-react'
-import { useMemo, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import { Card } from './ui/card'
 import { Flag } from './Flag'
 import { StatusDot } from './StatusDot'
 import { bytes, pct, relativeAge, uptime } from '../utils/format'
 import { cpuLabel, deriveUsage, displayName, distroLogo, osLabel, virtLabel } from '../utils/derive'
 import { cn } from '../utils/cn'
-import { computeLatencyStats } from '../utils/latency'
-import { useNodeLatency } from '../hooks/useNodeLatency'
-import type { BackendPool } from '../api/pool'
-import type { LatencyType, Node, TaskQueryResult } from '../types'
+import type { Node } from '../types'
 
-export function NodeCard({ node, pool }: { node: Node; pool: BackendPool | null }) {
+export function NodeCard({ node }: { node: Node }) {
   const u = deriveUsage(node)
   const os = osLabel(node)
   const logo = distroLogo(node)
   const virt = virtLabel(node)
   const cpu = cpuLabel(node)
   const load = loadUsage(node)
-  const { pingData, tcpData, loading: latencyLoading } = useNodeLatency(pool, node.source, node.uuid)
-  const latency = useMemo(
-    () => firstLatency(tcpData, 'tcp_ping') ?? firstLatency(pingData, 'ping'),
-    [tcpData, pingData],
-  )
 
   return (
     <a href={`#${encodeURIComponent(node.uuid)}`} className="block h-full">
@@ -90,9 +80,6 @@ export function NodeCard({ node, pool }: { node: Node; pool: BackendPool | null 
             accent="muted"
           />
         </div>
-
-        <LatencyPanel latency={latency} loading={latencyLoading} />
-
         <div className="glass-divider relative mt-auto border-t border-dashed pt-3 font-mono text-xs">
           <div className="flex items-center gap-4 text-muted-foreground">
             <Stat icon={ArrowDown}>{bytes(u.netIn || 0)}/s</Stat>
@@ -184,125 +171,6 @@ function SegmentBar({
       ))}
     </div>
   )
-}
-
-interface FirstLatency {
-  name: string
-  type: LatencyType
-  avg: number | null
-  lossRate: number
-  samples: Array<number | null>
-}
-
-function firstLatency(rows: TaskQueryResult[], type: LatencyType): FirstLatency | null {
-  let name: string | undefined
-  for (let i = rows.length - 1; i >= 0; i--) {
-    if (rows[i].cron_source) {
-      name = rows[i].cron_source
-      break
-    }
-  }
-  if (!name) return null
-
-  const stats = computeLatencyStats(rows, type).find(stat => stat.name === name)
-  const sourceRows = rows.filter(row => row.cron_source === name).slice(-18)
-  const samples = sourceRows.map(row => {
-    const value = row.task_event_result?.[type]
-    return row.success && typeof value === 'number' ? value : null
-  })
-
-  return {
-    name,
-    type,
-    avg: stats?.avg ?? null,
-    lossRate: stats?.lossRate ?? 0,
-    samples,
-  }
-}
-
-function LatencyPanel({ latency, loading }: { latency: FirstLatency | null; loading: boolean }) {
-  const avgTone = latencyTone(latency?.avg)
-  const lossTone = lossRateTone(latency?.lossRate ?? 0)
-
-  return (
-    <div className={cn('glass-panel relative rounded-md border border-dashed p-3.5', lossTone.panelBorder)}>
-      <div className="mb-3 flex items-center gap-2">
-        <Activity className={cn('h-4 w-4', avgTone.text)} />
-        <span className="text-sm font-bold">延迟监控</span>
-        <span className="ml-auto font-mono text-[11px] uppercase text-muted-foreground">
-          {latency?.type === 'ping' ? 'IPV4 PING' : 'IPV4 TCPING'}
-        </span>
-      </div>
-
-      {!latency && (
-        <div className="flex h-12 items-center justify-center gap-2 text-xs text-muted-foreground">
-          <RadioTower className={cn('h-4 w-4', loading && 'animate-pulse')} />
-          {loading ? '加载延迟数据中' : '暂无延迟数据'}
-        </div>
-      )}
-
-      {latency && (
-        <div className="grid grid-cols-[minmax(56px,0.85fr)_minmax(132px,1.7fr)_auto] items-center gap-2.5 text-xs">
-          <span className="truncate font-semibold text-muted-foreground" title={latency.name}>
-            {latency.name}
-          </span>
-          <div className="grid h-4 grid-cols-[repeat(18,minmax(0,1fr))] items-end gap-1 overflow-hidden">
-            {latency.samples.map((value, i) => (
-              <span
-                key={i}
-                className={cn(
-                  'w-full min-w-0 rounded-full',
-                  value == null ? 'h-2.5 bg-red-500' : latencyTone(value).bar,
-                )}
-                style={value == null ? undefined : { height: latencyBarHeight(value) }}
-                title={value == null ? 'packet loss' : `${Math.round(value)}ms`}
-              />
-            ))}
-          </div>
-          <span className={cn('text-right font-mono font-bold', avgTone.text)}>
-            {latency.avg != null ? `${Math.round(latency.avg)}ms` : '—'}
-            <span className={cn('block text-[11px] font-semibold', lossTone.text)}>
-              {formatLossRate(latency.lossRate)}
-            </span>
-          </span>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function latencyTone(value?: number | null) {
-  if (value == null || !Number.isFinite(value) || value <= 50) {
-    return { bar: 'bg-emerald-500', text: 'text-emerald-500' }
-  }
-  if (value <= 100) return { bar: 'bg-lime-400', text: 'text-lime-400' }
-  if (value <= 180) return { bar: 'bg-yellow-400', text: 'text-yellow-400' }
-  if (value <= 250) return { bar: 'bg-orange-500', text: 'text-orange-500' }
-  return { bar: 'bg-red-500', text: 'text-red-500' }
-}
-
-function latencyBarHeight(value: number) {
-  const clamped = Math.max(0, Math.min(value, 260))
-  return `${Math.round(24 + (clamped / 260) * 76)}%`
-}
-
-function lossRateTone(lossRate: number) {
-  if (lossRate < 0.1) {
-    return { text: 'text-muted-foreground', panelBorder: 'border-border/80' }
-  }
-  if (lossRate <= 3) {
-    return { text: 'text-yellow-400', panelBorder: 'border-border/80' }
-  }
-  if (lossRate <= 10) {
-    return { text: 'text-orange-500', panelBorder: 'border-orange-500/70' }
-  }
-  return { text: 'text-red-500', panelBorder: 'border-red-500/75' }
-}
-
-function formatLossRate(lossRate: number) {
-  if (lossRate < 0.1) return '0%'
-  if (lossRate < 10) return `${lossRate.toFixed(1)}%`
-  return `${lossRate.toFixed(0)}%`
 }
 
 function loadUsage(node: Node) {
