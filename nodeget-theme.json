@@ -10,24 +10,31 @@
     "items": [
       {
         "key": "site_name",
-        "name": "站点标题",
+        "name": "Site title",
         "type": "string",
         "default": "NodeGet Status",
-        "help": "输入站点标题"
+        "help": "Enter the site title"
       },
       {
         "key": "site_logo",
-        "name": "站点图标",
+        "name": "Site logo",
         "type": "string",
         "default": "",
-        "help": "输入站点图标链接，留空则使用默认"
+        "help": "Enter a site logo URL. Leave empty to use the default logo."
       },
       {
         "key": "footer",
-        "name": "页脚文本",
+        "name": "Footer text",
         "type": "string",
         "default": "Powered by NodeGet",
-        "help": "输入页脚文本"
+        "help": "Enter footer text"
+      },
+      {
+        "key": "dashboard_url",
+        "name": "Dashboard URL",
+        "type": "string",
+        "default": "",
+        "help": "Node management dashboard URL. Leave empty to hide the settings button."
       }
     ]
   },

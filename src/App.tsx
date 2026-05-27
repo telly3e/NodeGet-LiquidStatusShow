@@ -1,6 +1,7 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { AlertTriangle, CalendarRange, Coins, Loader2, Server } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from './components/ui/alert'
+import { Card } from './components/ui/card'
 import { useConfig } from './hooks/useConfig'
 import { useNodes } from './hooks/useNodes'
 import { Background } from './components/Background'
@@ -16,7 +17,8 @@ const WorldMap = lazy(() =>
   import('./components/WorldMap').then(m => ({ default: m.WorldMap })),
 )
 import { deriveUsage, displayName } from './utils/derive'
-import type { Sort, View } from './types'
+import { remainingDays, remainingValue } from './utils/cost'
+import type { Node, Sort, View } from './types'
 
 const DEFAULT_LOGO = `${import.meta.env.BASE_URL}logo.png`
 const VIEW_KEY = 'nodeget.view'
@@ -37,6 +39,31 @@ function readHash() {
 }
 
 const num = (v?: number) => (Number.isFinite(v) ? (v as number) : -Infinity)
+
+function money(value: number, unit: string) {
+  const code = unit.trim()
+  const upper = code.toUpperCase()
+  if (code === '¥' || code === '￥' || upper === 'CNY' || upper === 'RMB') {
+    return `¥${value.toFixed(2)}`
+  }
+  const prefix = code === '$' || upper === 'USD' ? '$' : ''
+  const suffix = prefix ? '' : code ? ` ${code}` : ''
+  return `${prefix}${value.toFixed(2)}${suffix}`
+}
+
+function billingCycle(meta: Node['meta']) {
+  return Number.isFinite(meta.priceCycle) && meta.priceCycle > 0 ? meta.priceCycle : 30
+}
+
+function primaryUnit(nodes: Node[]) {
+  const counts = new Map<string, number>()
+  for (const node of nodes) {
+    if (node.meta.price <= 0) continue
+    const unit = node.meta.priceUnit || 'CNY'
+    counts.set(unit, (counts.get(unit) ?? 0) + 1)
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'CNY'
+}
 
 export function App() {
   const { config, error: configError } = useConfig()
@@ -158,6 +185,11 @@ export function App() {
     })
   }, [nodes, query, activeTag, activeRegion, sort, regions])
 
+  const costNodes = useMemo(
+    () => [...nodes.values()].filter(n => !n.meta?.hidden),
+    [nodes],
+  )
+
   const selectedNode = selected ? nodes.get(selected) || null : null
 
   if (configError) {
@@ -196,6 +228,7 @@ export function App() {
         onView={setView}
         sort={sort}
         onSort={setSort}
+        dashboardUrl={config.user_preferences.dashboard_url}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
@@ -221,10 +254,15 @@ export function App() {
         )}
 
         {!empty && view === 'cards' && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {list.map(n => (
-              <NodeCard key={n.uuid} node={n} />
-            ))}
+          <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-4 items-start">
+            <aside className="hidden space-y-4 lg:block">
+              <ValueSidebar nodes={costNodes} />
+            </aside>
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))] gap-4">
+              {list.map(n => (
+                <NodeCard key={n.uuid} node={n} pool={pool} />
+              ))}
+            </div>
           </div>
         )}
         {!empty && view === 'table' && <NodeTable nodes={list} onOpen={setSelected} />}
@@ -266,6 +304,144 @@ export function App() {
         showSource={(config.site_tokens?.length ?? 0) > 1}
         pool={pool}
       />
+    </div>
+  )
+}
+
+function ValueSidebar({ nodes }: { nodes: Node[] }) {
+  const total = nodes.length
+  const online = nodes.filter(node => node.online).length
+  const expiring = nodes
+    .map(node => ({ node, days: remainingDays(node.meta.expireTime) }))
+    .filter((item): item is { node: Node; days: number } => item.days != null)
+    .sort((a, b) => a.days - b.days)
+  const expiringWithin7 = expiring.filter(item => item.days >= 0 && item.days <= 7)
+
+  return (
+    <>
+      <ValueStatsCard nodes={nodes} />
+      <SidebarMetricCard
+        icon={<Server className="h-4 w-4" />}
+        title="在线 / 总节点"
+        value={`${online} / ${total}`}
+        caption="当前可见节点"
+      />
+      <SidebarMetricCard
+        icon={<AlertTriangle className="h-4 w-4" />}
+        title="7 天内到期"
+        value={String(expiringWithin7.length)}
+        caption="建议优先关注"
+      />
+      <ExpiringSoonCard items={expiring.slice(0, 4)} />
+    </>
+  )
+}
+
+function ValueStatsCard({ nodes }: { nodes: Node[] }) {
+  const priced = nodes.filter(node => node.meta.price > 0)
+  const unit = primaryUnit(priced)
+  const monthlyTotal = priced.reduce(
+    (sum, node) => sum + node.meta.price * (30 / billingCycle(node.meta)),
+    0,
+  )
+  const remain = priced.reduce((sum, node) => sum + remainingValue(node.meta), 0)
+  const monthlyAverage = priced.length ? monthlyTotal / priced.length : 0
+  const yearlyRenewal = monthlyTotal * 12
+
+  return (
+    <Card className="relative overflow-hidden bg-card/90 backdrop-blur border-border/70 p-4">
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(hsl(var(--border)/0.18)_1px,transparent_1px),linear-gradient(90deg,hsl(var(--border)/0.14)_1px,transparent_1px)] bg-[size:22px_22px] opacity-20" />
+      <div className="relative flex items-start gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-500">
+          <Coins className="h-4 w-4" />
+        </div>
+        <div className="min-w-0">
+          <div className="font-bold leading-tight">价值统计</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">{unit}</div>
+        </div>
+      </div>
+
+      <div className="relative mt-4 rounded-md border border-dashed border-border/80 bg-muted/15 p-4">
+        <ValueRow label="剩余价值" value={money(remain, unit)} strong />
+        <ValueRow label="平均月续费" value={money(monthlyAverage, unit)} />
+        <ValueRow label="年续费" value={money(yearlyRenewal, unit)} />
+      </div>
+
+      <div className="relative mt-3 text-xs text-muted-foreground">
+        {priced.length ? `已设置价格的节点 ${priced.length} 台` : '暂无已设置价格的节点'}
+      </div>
+    </Card>
+  )
+}
+
+function SidebarMetricCard({
+  icon,
+  title,
+  value,
+  caption,
+}: {
+  icon: ReactNode
+  title: string
+  value: string
+  caption: string
+}) {
+  return (
+    <Card className="relative overflow-hidden bg-card/90 backdrop-blur border-border/70 p-4">
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(hsl(var(--border)/0.16)_1px,transparent_1px),linear-gradient(90deg,hsl(var(--border)/0.12)_1px,transparent_1px)] bg-[size:22px_22px] opacity-20" />
+      <div className="relative flex items-start gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-500">
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <div className="text-sm font-bold text-muted-foreground">{title}</div>
+          <div className="mt-1 font-mono text-2xl font-bold leading-none">{value}</div>
+          <div className="mt-3 text-xs text-muted-foreground">{caption}</div>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+function ExpiringSoonCard({ items }: { items: Array<{ node: Node; days: number }> }) {
+  return (
+    <Card className="relative overflow-hidden bg-card/90 backdrop-blur border-border/70 p-4">
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(hsl(var(--border)/0.16)_1px,transparent_1px),linear-gradient(90deg,hsl(var(--border)/0.12)_1px,transparent_1px)] bg-[size:22px_22px] opacity-20" />
+      <div className="relative flex items-start gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-500">
+          <CalendarRange className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="font-bold leading-tight">临近到期</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">显示最需要关注的几台</div>
+          {items.length === 0 ? (
+            <div className="mt-4 text-sm text-muted-foreground">暂无已设置到期时间的节点</div>
+          ) : (
+            <div className="mt-4 space-y-2">
+              {items.map(({ node, days }) => (
+                <div key={node.uuid} className="flex items-center justify-between gap-3 text-xs">
+                  <span className="min-w-0 truncate font-medium" title={displayName(node)}>
+                    {displayName(node)}
+                  </span>
+                  <span className={days <= 7 ? 'shrink-0 font-mono text-orange-500' : 'shrink-0 font-mono text-muted-foreground'}>
+                    {days < 0 ? `已过期 ${Math.abs(days)} 天` : `${days} 天`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+function ValueRow({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-1.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className={strong ? 'font-mono text-xl font-bold' : 'font-mono text-sm font-semibold'}>
+        {value}
+      </span>
     </div>
   )
 }

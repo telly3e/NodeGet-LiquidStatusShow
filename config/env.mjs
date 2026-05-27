@@ -43,7 +43,8 @@ export function buildEnvConfigOld() {
     user_preferences: removeEmptyValue({
       site_name: process.env.SITE_NAME,
       site_logo: process.env.SITE_LOGO,
-      footer: process.env.SITE_FOOTER
+      footer: process.env.SITE_FOOTER,
+      dashboard_url: process.env.SITE_DASHBOARD_URL || process.env.DASHBOARD_URL
     }),
     site_tokens: siteTokens
   }

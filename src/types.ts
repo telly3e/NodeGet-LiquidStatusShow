@@ -107,6 +107,7 @@ export interface UserConfig {
     site_name?: string
     site_logo?: string
     footer?: string
+    dashboard_url?: string
   },
   site_tokens: { 
     name: string; 

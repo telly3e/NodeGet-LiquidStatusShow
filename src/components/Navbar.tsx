@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Search as SearchIcon, X } from 'lucide-react'
+import { Search as SearchIcon, Settings, X } from 'lucide-react'
 import { Search } from './Search'
 import { ViewToggle } from './ViewToggle'
 import { ThemeToggle } from './ThemeToggle'
@@ -16,9 +16,20 @@ interface Props {
   onView: (v: View) => void
   sort: Sort
   onSort: (v: Sort) => void
+  dashboardUrl?: string
 }
 
-export function Navbar({ siteName, logo, query, onQuery, view, onView, sort, onSort }: Props) {
+export function Navbar({
+  siteName,
+  logo,
+  query,
+  onQuery,
+  view,
+  onView,
+  sort,
+  onSort,
+  dashboardUrl,
+}: Props) {
   const [searchOpen, setSearchOpen] = useState(false)
   const [stuck, setStuck] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -71,6 +82,19 @@ export function Navbar({ siteName, logo, query, onQuery, view, onView, sort, onS
           <SortMenu value={sort} onChange={onSort} />
           <ViewToggle value={view} onChange={onView} />
           <ThemeToggle />
+          {dashboardUrl && (
+            <Button variant="outline" size="icon" asChild>
+              <a
+                href={dashboardUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="打开节点管理面板"
+                title="节点管理面板"
+              >
+                <Settings className="h-4 w-4" />
+              </a>
+            </Button>
+          )}
         </div>
       </div>
 
