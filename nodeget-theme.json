@@ -1,19 +1,26 @@
 {
-  "name": "NodeGet Basic Theme",
-  "short": "NodeGetBasic",
-  "description": "NodeGet Basic Theme - a boilerplate for custom themes",
-  "author": "NodeSeekDev",
+"name": "NodeGet Liquid Glass Theme",
+"short": "NodeGetLiquid",
+"description": "NodeGet Liquid Glass Theme - a trash liquid glass theme from vibe coding",
+"author": "NodeSeekDev, telly3e",
   "repository": "https://github.com/telly3e/NodeGet-LiquidStatusShow.git",
-  "dist_page": "https://nodeget.pages.dev",
+"dist_page": "https://nodeget-liquidstatusshow.pages.dev/",
   "user_preferences_form": {
     "version": "0.0.1",
     "items": [
       {
         "key": "site_name",
-        "name": "Site title",
+        "name": "Site name",
         "type": "string",
         "default": "NodeGet Status",
-        "help": "Enter the site title"
+        "help": "Enter the site name shown in the navigation bar."
+    },
+    {
+        "key": "site_title",
+        "name": "Browser title",
+        "type": "string",
+        "default": "",
+        "help": "Enter the browser tab title. Leave empty to use NodeGet - StatusShow."
       },
       {
         "key": "site_logo",

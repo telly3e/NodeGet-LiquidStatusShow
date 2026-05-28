@@ -21,6 +21,7 @@ import { remainingDays, remainingValue } from './utils/cost'
 import type { Node, Sort, View } from './types'
 
 const DEFAULT_LOGO = `${import.meta.env.BASE_URL}logo.png`
+const DEFAULT_TITLE = 'NodeGet - StatusShow'
 const VIEW_KEY = 'nodeget.view'
 const SORT_KEY = 'nodeget.sort'
 
@@ -212,10 +213,15 @@ export function App() {
 
   const selectedNode = selected ? nodes.get(selected) || null : null
   const favicon = config?.user_preferences.site_logo || DEFAULT_LOGO
+  const pageTitle = config?.user_preferences.site_title?.trim() || DEFAULT_TITLE
 
   useEffect(() => {
     updateFavicon(favicon)
   }, [favicon])
+
+  useEffect(() => {
+    document.title = pageTitle
+  }, [pageTitle])
 
   if (configError) {
     return (

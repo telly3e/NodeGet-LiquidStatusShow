@@ -50,6 +50,7 @@ export function buildEnvConfigOld() {
   const envConfig = {
     user_preferences: removeEmptyValue({
       site_name: process.env.SITE_NAME,
+      site_title: process.env.SITE_TITLE,
       site_logo: process.env.SITE_LOGO,
       footer: process.env.SITE_FOOTER,
       dashboard_url: process.env.SITE_DASHBOARD_URL || process.env.DASHBOARD_URL,

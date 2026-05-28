@@ -20,8 +20,10 @@ import { deriveUsage, displayName, distroLogo, osLabel, virtLabel } from '../uti
 import { cycleProgress, hasCost, remainingDays, remainingValue } from '../utils/cost'
 import { cn, strokeColor } from '../utils/cn'
 import {
+  buildLatencyHealth,
   buildLatencyChart,
   computeLatencyStats,
+  type LatencyHealthRow,
   type LatencyStats,
 } from '../utils/latency'
 import { useNodeLatency } from '../hooks/useNodeLatency'
@@ -40,7 +42,8 @@ const LATENCY_ACTIVE_DOT = {
   strokeWidth: 2,
 }
 
-const LATENCY_CHART_MAX_POINTS = 240
+const LATENCY_CHART_MAX_POINTS = 720
+const LATENCY_HEALTH_BINS = 96
 
 const LATENCY_RANGE = { label: '6h', ms: 6 * 60 * 60 * 1000 } as const
 
@@ -437,6 +440,10 @@ function LatencyBlock({ title, rows, type, loading, rangeLabel, rangeMs }: Laten
     [rows, type],
   )
   const stats = useMemo(() => computeLatencyStats(rows, type), [rows, type])
+  const healthRows = useMemo(
+    () => buildLatencyHealth(rows, type, { rangeMs, maxBins: LATENCY_HEALTH_BINS }),
+    [rangeMs, rows, type],
+  )
   const [hidden, setHidden] = useState<Set<string>>(() => new Set())
   const empty = data.length === 0
   const latestTs = data.at(-1)?.t ?? Date.now()
@@ -446,6 +453,7 @@ function LatencyBlock({ title, rows, type, loading, rangeLabel, rangeMs }: Laten
     actualStart != null && data.length > 1 ? Math.max(0, latestTs - actualStart) : 0
 
   const visibleSeries = series.filter(s => !hidden.has(s.name))
+  const visibleHealthRows = healthRows.filter(row => !hidden.has(row.name))
 
   const toggle = (name: string) =>
     setHidden(prev => {
@@ -501,7 +509,7 @@ function LatencyBlock({ title, rows, type, loading, rangeLabel, rangeMs }: Laten
                     fill: s.color,
                     stroke: 'hsl(var(--background))',
                   }}
-                  connectNulls
+                  connectNulls={false}
                   isAnimationActive={false}
                 />
               ))}
@@ -512,6 +520,10 @@ function LatencyBlock({ title, rows, type, loading, rangeLabel, rangeMs }: Laten
           <div className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
         )}
       </div>
+
+      {visibleHealthRows.length > 0 && (
+        <LatencyHealthStrip rows={visibleHealthRows} rangeMs={rangeMs} />
+      )}
 
       {stats.length > 0 && (
         <div className="mt-3 border-t pt-3">
@@ -538,6 +550,62 @@ function LatencyBlock({ title, rows, type, loading, rangeLabel, rangeMs }: Laten
       )}
     </Section>
   )
+}
+
+function LatencyHealthStrip({ rows, rangeMs }: { rows: LatencyHealthRow[]; rangeMs: number }) {
+  return (
+    <div className="glass-panel mt-3 rounded-md border border-dashed p-3.5">
+      <div className="mb-2 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+        <span>连通性</span>
+        <span className="flex items-center gap-2">
+          <HealthLegend color="bg-emerald-500" label="正常" />
+          <HealthLegend color="bg-red-500" label="失败/丢包" />
+          <HealthLegend color="bg-muted-foreground/35" label="无样本" />
+        </span>
+      </div>
+      <div className="space-y-1.5">
+        {rows.map(row => (
+          <div key={row.name} className="grid grid-cols-[minmax(72px,0.8fr)_minmax(0,3fr)] items-center gap-2">
+            <span className="truncate text-[11px] text-muted-foreground" title={row.name}>
+              {row.name}
+            </span>
+            <div
+              className="grid h-4 items-end gap-1 overflow-hidden"
+              style={{ gridTemplateColumns: `repeat(${row.bins.length}, minmax(0, 1fr))` }}
+            >
+              {row.bins.map((bin, index) => (
+                <span
+                  key={index}
+                  className={cn(
+                    'h-4 w-full min-w-0 rounded-full',
+                    bin.state === 'ok' && 'bg-emerald-500',
+                    bin.state === 'loss' && 'bg-red-500',
+                    bin.state === 'missing' && 'bg-muted-foreground/25',
+                  )}
+                  title={`${formatLatencyTick(bin.start, rangeMs)} - ${formatLatencyTick(bin.end, rangeMs)}: ${healthLabel(bin.state)}`}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function HealthLegend({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className={cn('h-3 w-1.5 rounded-full', color)} />
+      {label}
+    </span>
+  )
+}
+
+function healthLabel(state: 'ok' | 'loss' | 'missing') {
+  if (state === 'ok') return '正常'
+  if (state === 'loss') return '失败/丢包'
+  return '无样本/离线'
 }
 
 function LatencyStatsRow({

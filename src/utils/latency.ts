@@ -46,14 +46,66 @@ export interface LatencyChartOptions {
   maxPoints?: number
 }
 
-function forwardFill(data: ChartPoint[], names: string[]) {
-  const last: Record<string, number | null> = {}
-  for (const n of names) last[n] = null
-  for (const pt of data) {
-    for (const n of names) {
-      const v = pt[n]
-      if (v == null) pt[n] = last[n]
-      else last[n] = v
+export type LatencyHealthState = 'ok' | 'loss' | 'missing'
+
+export interface LatencyHealthBin {
+  start: number
+  end: number
+  state: LatencyHealthState
+}
+
+export interface LatencyHealthRow {
+  name: string
+  color: string
+  bins: LatencyHealthBin[]
+}
+
+export interface LatencyHealthOptions {
+  maxBins?: number
+  rangeMs: number
+}
+
+function medianDelta(values: number[]) {
+  if (values.length < 2) return null
+  const deltas: number[] = []
+  for (let i = 1; i < values.length; i++) {
+    const delta = values[i] - values[i - 1]
+    if (delta > 0) deltas.push(delta)
+  }
+  if (!deltas.length) return null
+  deltas.sort((a, b) => a - b)
+  return deltas[Math.floor(deltas.length / 2)]
+}
+
+function ensurePoint(byTs: Map<number, ChartPoint>, t: number, names: string[]) {
+  let point = byTs.get(t)
+  if (!point) {
+    point = { t }
+    for (const n of names) point[n] = null
+    byTs.set(t, point)
+  }
+  return point
+}
+
+function addGapBreaks(byTs: Map<number, ChartPoint>, rows: TaskQueryResult[], names: string[]) {
+  for (const name of names) {
+    const timestamps = rows
+      .filter(row => (row.cron_source || '鏈煡') === name)
+      .map(row => normalizeTs(row.timestamp))
+      .sort((a, b) => a - b)
+    const expected = medianDelta(timestamps)
+    if (!expected) continue
+
+    const threshold = Math.max(expected * 2.5, 60_000)
+    for (let i = 1; i < timestamps.length; i++) {
+      const prev = timestamps[i - 1]
+      const current = timestamps[i]
+      const gap = current - prev
+      if (gap <= threshold) continue
+
+      const offset = Math.min(expected, Math.floor(gap / 3))
+      ensurePoint(byTs, prev + offset, names)[name] = null
+      ensurePoint(byTs, current - offset, names)[name] = null
     }
   }
 }
@@ -107,10 +159,43 @@ export function buildLatencyChart(
     pt[r.cron_source || '未知'] = pickValue(r, type)
   }
 
+  addGapBreaks(byTs, rows, names)
   let data = [...byTs.values()].sort((a, b) => a.t - b.t)
-  forwardFill(data, names)
   data = downsampleChartData(data, names, options.maxPoints)
   return { data, series }
+}
+
+export function buildLatencyHealth(
+  rows: TaskQueryResult[],
+  type: LatencyType,
+  options: LatencyHealthOptions,
+) {
+  const names = seriesNames(rows)
+  const maxBins = options.maxBins ?? 96
+  const latestTs = rows.length
+    ? Math.max(...rows.map(row => normalizeTs(row.timestamp)))
+    : Date.now()
+  const start = latestTs - options.rangeMs
+  const binMs = options.rangeMs / maxBins
+
+  return names.map<LatencyHealthRow>(name => {
+    const sourceRows = rows
+      .filter(row => (row.cron_source || '鏈煡') === name)
+      .map(row => ({ row, t: normalizeTs(row.timestamp), value: pickValue(row, type) }))
+
+    const bins = Array.from({ length: maxBins }, (_, index) => {
+      const binStart = start + index * binMs
+      const binEnd = index === maxBins - 1 ? latestTs + 1 : binStart + binMs
+      const samples = sourceRows.filter(sample => sample.t >= binStart && sample.t < binEnd)
+      let state: LatencyHealthState = 'missing'
+      if (samples.length) {
+        state = samples.some(sample => sample.value == null) ? 'loss' : 'ok'
+      }
+      return { start: binStart, end: binEnd, state }
+    })
+
+    return { name, color: latencyColor(name), bins }
+  })
 }
 
 export interface LatencyStats {

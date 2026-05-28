@@ -105,6 +105,7 @@ export interface ThemeConfig {
 export interface UserConfig {
   "user_preferences":{
     site_name?: string
+    site_title?: string
     site_logo?: string
     footer?: string
     dashboard_url?: string
