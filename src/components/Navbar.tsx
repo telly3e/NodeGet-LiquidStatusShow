@@ -17,6 +17,7 @@ interface Props {
   sort: Sort
   onSort: (v: Sort) => void
   dashboardUrl?: string
+  defaultColorMode?: string
 }
 
 export function Navbar({
@@ -29,6 +30,7 @@ export function Navbar({
   sort,
   onSort,
   dashboardUrl,
+  defaultColorMode,
 }: Props) {
   const [searchOpen, setSearchOpen] = useState(false)
   const [stuck, setStuck] = useState(false)
@@ -81,7 +83,7 @@ export function Navbar({
           </Button>
           <SortMenu value={sort} onChange={onSort} />
           <ViewToggle value={view} onChange={onView} />
-          <ThemeToggle />
+          <ThemeToggle defaultMode={defaultColorMode} />
           {dashboardUrl && (
             <Button variant="outline" size="icon" asChild>
               <a
