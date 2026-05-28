@@ -110,6 +110,7 @@ export interface UserConfig {
     dashboard_url?: string
     default_color_mode?: string
     show_sponsored_footer?: boolean
+    card_latency_monitor_name?: string
     show_value_stats_card?: boolean
     show_online_total_card?: boolean
     show_expiring_7_days_card?: boolean

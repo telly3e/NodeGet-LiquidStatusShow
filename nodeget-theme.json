@@ -52,6 +52,13 @@
         "help": "Show the sponsored footer. Turn off to use the standard footer text."
       },
       {
+        "key": "card_latency_monitor_name",
+        "name": "Card latency monitor",
+        "type": "string",
+        "default": "",
+        "help": "Cron monitor name used for the card latency preview. Leave empty to hide the preview."
+      },
+      {
         "key": "show_value_stats_card",
         "name": "Show value statistics card",
         "type": "switch",

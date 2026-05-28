@@ -247,6 +247,7 @@ export function App() {
     expiringSoon: enabled(config.user_preferences.show_expiring_soon_card),
   }
   const showSidebar = Object.values(sidebarVisibility).some(Boolean)
+  const cardLatencyMonitorName = config.user_preferences.card_latency_monitor_name?.trim() ?? ''
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -295,7 +296,12 @@ export function App() {
             )}
             <div className="grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))] gap-4">
               {list.map(n => (
-                <NodeCard key={n.uuid} node={n} />
+                <NodeCard
+                  key={n.uuid}
+                  node={n}
+                  pool={pool}
+                  cardLatencyMonitorName={cardLatencyMonitorName}
+                />
               ))}
             </div>
           </div>
