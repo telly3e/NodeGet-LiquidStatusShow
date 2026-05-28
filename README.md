@@ -1,5 +1,11 @@
 # NodeGet-StatusShow
 
+## Credits
+
+- NodeGet official website: <https://nodeget.com/>
+- This theme is a secondary development based on the official NodeGet theme.
+- Some visual materials are based on <https://codepen.io/LeonLinBuild/pen/emdgRJj>.
+
 一个服务器状态展示页，NodeGet的公开探针页面
 
 欢迎开发者基于此版本进行定制，也欢迎 pr 到本项目
