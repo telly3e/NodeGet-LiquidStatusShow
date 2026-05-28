@@ -27,8 +27,8 @@ const CARD_LATENCY_OPTIONS = {
   cacheTtlMs: 120_000,
   includePing: false,
   includeTcp: true,
-  limit: 180,
-  refreshMs: 10_000,
+  limit: 100,
+  refreshMs: 30_000,
 }
 
 export function NodeCard({
