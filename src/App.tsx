@@ -38,6 +38,18 @@ function readHash() {
   return decodeURIComponent(window.location.hash.slice(1)) || null
 }
 
+function updateFavicon(href: string) {
+  const rel = 'icon'
+  let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
+  if (!link) {
+    link = document.createElement('link')
+    link.rel = rel
+    document.head.appendChild(link)
+  }
+  link.type = 'image/png'
+  link.href = href
+}
+
 const num = (v?: number) => (Number.isFinite(v) ? (v as number) : -Infinity)
 const enabled = (value?: boolean) => value !== false
 
@@ -199,6 +211,11 @@ export function App() {
   )
 
   const selectedNode = selected ? nodes.get(selected) || null : null
+  const favicon = config?.user_preferences.site_logo || DEFAULT_LOGO
+
+  useEffect(() => {
+    updateFavicon(favicon)
+  }, [favicon])
 
   if (configError) {
     return (
@@ -244,6 +261,7 @@ export function App() {
         sort={sort}
         onSort={setSort}
         dashboardUrl={config.user_preferences.dashboard_url}
+        defaultColorMode={config.user_preferences.default_color_mode}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">

@@ -37,6 +37,14 @@
         "help": "Node management dashboard URL. Leave empty to hide the settings button."
       },
       {
+        "key": "default_color_mode",
+        "name": "Default color mode",
+        "type": "select",
+        "options": "auto,light,dark",
+        "default": "auto",
+        "help": "Choose the default color mode. Auto follows the browser preference."
+      },
+      {
         "key": "show_sponsored_footer",
         "name": "Show sponsored footer",
         "type": "switch",

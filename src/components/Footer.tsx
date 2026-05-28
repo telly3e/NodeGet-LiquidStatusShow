@@ -40,8 +40,13 @@ export function Footer({
             href={repo || DEFAULT_REPO}
             target="_blank"
             rel="noreferrer"
-            className="font-medium text-black"
+            className="inline-flex items-center gap-1.5 font-medium text-black"
           >
+            <img
+              src={`${import.meta.env.BASE_URL}logo.png`}
+              alt="NodeGet"
+              className="h-5 w-5 rounded-sm object-contain"
+            />
             NodeGet
           </a>
           <span className="text-muted-foreground/70">,</span>

@@ -108,6 +108,7 @@ export interface UserConfig {
     site_logo?: string
     footer?: string
     dashboard_url?: string
+    default_color_mode?: string
     show_sponsored_footer?: boolean
     show_value_stats_card?: boolean
     show_online_total_card?: boolean

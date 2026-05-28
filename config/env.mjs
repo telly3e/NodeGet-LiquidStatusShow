@@ -53,6 +53,7 @@ export function buildEnvConfigOld() {
       site_logo: process.env.SITE_LOGO,
       footer: process.env.SITE_FOOTER,
       dashboard_url: process.env.SITE_DASHBOARD_URL || process.env.DASHBOARD_URL,
+      default_color_mode: process.env.SITE_DEFAULT_COLOR_MODE,
       show_sponsored_footer: parseBooleanEnv(process.env.SITE_SHOW_SPONSORED_FOOTER),
       show_value_stats_card: parseBooleanEnv(process.env.SITE_SHOW_VALUE_STATS_CARD),
       show_online_total_card: parseBooleanEnv(process.env.SITE_SHOW_ONLINE_TOTAL_CARD),
