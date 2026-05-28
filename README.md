@@ -1,8 +1,20 @@
-# NodeGet-StatusShow
+# NodeGet Liquid Glass Theme - Personal Branch
 
-一个服务器状态展示页，NodeGet的公开探针页面
+> **重要提示：这是开发者个人修改过的分支。**
+>
+> 这个分支包含个人站点使用的赞助页脚等定制内容，不建议普通用户直接使用。  
+> 如果你只是想部署一个稳定、通用的主题，**强烈建议使用 `main` 分支**。
 
-欢迎开发者基于此版本进行定制，也欢迎 pr 到本项目
+一个基于 NodeGet 官方主题二次开发的服务器状态展示页。
+
+## 项目信息
+
+- NodeGet 官网：<https://nodeget.com/>
+- 主题仓库：<https://github.com/telly3e/NodeGet-LiquidStatusShow.git>
+- 当前分支发布页：<https://x.oak.moe>
+- 部分视觉素材参考：<https://codepen.io/LeonLinBuild/pen/emdgRJj>
+
+欢迎开发者基于 `main` 分支进行定制，也欢迎 PR 到本项目。
 
 ## 开发
 
@@ -10,44 +22,43 @@
 npm i
 npm run dev
 ```
-## 一键部署
-一键部署需要主控的版本在0.2.6以上，请先到[控制面板](https://dash.nodeget.com/#/dashboard/node-manage?tab=servers)查看主控版本
 
-<a href="https://dash.nodeget.com/#/dashboard/theme-management?add=https://nodeget.pages.dev">
+## 一键部署
+
+一键部署需要主控版本在 `0.2.6` 以上，请先到[控制面板](https://dash.nodeget.com/#/dashboard/node-manage?tab=servers)查看主控版本。
+
+再次提醒：这个分支是个人修改分支，普通用户建议改用 `main` 分支。
+
+<a href="https://dash.nodeget.com/#/dashboard/theme-management?add=https://x.oak.moe">
   <img src="https://dash.nodeget.com/deploy-button.png" alt="deploy button" width="230px" />
 </a>
 
-
 ## 基于静态文件部署
 
-本项目 build 完是纯静态站， 丢哪都行
+本项目构建完成后是纯静态站点，可以部署到 nginx、Cloudflare Pages、Vercel 等任意静态文件服务。
 
-官方准备了一份可以直接下载的编译结果，方便需要把静态文件部署到其他地方的用户
+当前分支构建产物：
 
-此下载链接始终与最新版保持一致，利用cloudflare pages自动编译生成
+<https://x.oak.moe/NodeGet-StatusShow.zip>
 
-<https://nodeget.pages.dev/NodeGet-StatusShow.zip>
+下载后修改 `config.json`，再上传到静态文件服务即可。
 
-下载后修改 config.json 的信息，然后可以上传到任意静态文件服务，如 nginx、 cloudflare pages、vercel
+## 基于 Cloudflare Pages 编译部署
 
-## 基于 cloudflare pages编译部署
+Fork 本仓库后，可以在 Cloudflare Pages / Vercel 直接部署并绑定域名。
 
-此为官方最推荐的部署方式，方便升级至新版
-
-Fork本仓库, 然后在cloudflare pages / vercel 直接部署，绑定域名
-
-设定环境变量 `NODEGET_CONFIG`，需要是有效的JSON字符串
+推荐使用 `NODEGET_CONFIG` 环境变量注入配置，它必须是有效的 JSON 字符串：
 
 ```json
 {
-  "user_preferences":{
+  "user_preferences": {
     "site_name": "NodeGet Status",
     "site_title": "",
     "site_logo": "",
     "footer": "Powered by NodeGet",
     "dashboard_url": "https://dash.nodeget.com/",
     "default_color_mode": "auto",
-    "show_sponsored_footer": true,
+    "show_sponsored_footer": false,
     "card_latency_monitor_name": "",
     "show_value_stats_card": true,
     "show_online_total_card": true,
@@ -64,37 +75,50 @@ Fork本仓库, 然后在cloudflare pages / vercel 直接部署，绑定域名
 }
 ```
 
-要更新版本则就在 fork 的 GitHub 仓库点击 sync 就行，可以轻松且可控的升级
+环境变量是在 **build 时** 注入的，修改后必须重新部署一次才会生效。
 
-> 环境变量是 **build 时** 注入的 改完之后必须重新部署一次才会生效 在面板里光改不重新跑 build 是没用的
+## 主题配置项
 
-## 环境变量(旧版)
+这些配置来自 `nodeget-theme.json` 的 `user_preferences_form.items`：
 
-旧版没有充分考虑扩展性，只支持有限的环境变量
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `site_name` | `NodeGet Status` | 顶栏显示的站点名称 |
+| `site_title` | 空 | 浏览器标签页标题；留空使用默认 `NodeGet - StatusShow` |
+| `site_logo` | 空 | 站点 Logo URL；留空使用内置 `logo.png` |
+| `footer` | `Powered by NodeGet` | 页脚文字 |
+| `dashboard_url` | `https://dash.nodeget.com/` | 节点管理面板地址；留空隐藏设置按钮 |
+| `default_color_mode` | `auto` | 默认颜色模式，可选 `auto` / `light` / `dark` |
+| `show_sponsored_footer` | `false` | 是否显示个人定制的赞助页脚；关闭时使用普通页脚 |
+| `card_latency_monitor_name` | 空 | 首页卡片延迟预览使用的监测点名称；留空不显示卡片延迟预览 |
+| `show_value_stats_card` | `true` | 是否显示卡片页左侧“价值统计”卡片 |
+| `show_online_total_card` | `true` | 是否显示卡片页左侧“在线 / 总节点”卡片 |
+| `show_expiring_7_days_card` | `true` | 是否显示卡片页左侧“7 天内到期”卡片 |
+| `show_expiring_soon_card` | `true` | 是否显示卡片页左侧“临近到期”卡片 |
 
-```
+## 旧版环境变量
+
+仍然兼容旧版分散环境变量，但更推荐使用 `NODEGET_CONFIG`。
+
+```env
 SITE_NAME=狼牙的探针
 SITE_TITLE=NodeGet - StatusShow
 SITE_LOGO=https://example.com/logo.png
 SITE_FOOTER=Powered by NodeGet
 SITE_DASHBOARD_URL=https://dash.nodeget.com/
 SITE_DEFAULT_COLOR_MODE=auto
-SITE_SHOW_SPONSORED_FOOTER=true
+SITE_SHOW_SPONSORED_FOOTER=false
 SITE_CARD_LATENCY_MONITOR_NAME=monitor-name
 SITE_SHOW_VALUE_STATS_CARD=true
 SITE_SHOW_ONLINE_TOTAL_CARD=true
 SITE_SHOW_EXPIRING_7_DAYS_CARD=true
 SITE_SHOW_EXPIRING_SOON_CARD=true
 SITE_1=name="master-1",backend_url="wss://m1.example.com",token="abc123"
-SITE_2=name="master-2",backend_url="wss://m2.example.com",token="xyz789" 
+SITE_2=name="master-2",backend_url="wss://m2.example.com",token="xyz789"
 ```
 
-前三个对应 `site_name` / `site_logo` / `footer` 不写就用默认值
+`SITE_n` 是主控配置，值使用 `key="value"` 的逗号分隔格式，支持 `name` / `backend_url` / `token` 三个字段。值里需要写引号或反斜杠时，用 `\"` 和 `\\` 转义。
 
-`SITE_n` 是主控 值用 `key="value"` 拿逗号串起来 支持 `name` / `backend_url` / `token` 三个字段 值里要塞引号或反斜杠的话用 `\"` 和 `\\` 转义
+`SITE_n` 从 `SITE_1` 开始连续读取，中间断了就停止；添加新主控时继续使用 `SITE_3`、`SITE_4` 即可。
 
-从 `SITE_1` 开始连续往上数 中间断了就停 所以加新主控接着 `SITE_3` `SITE_4` 就行
-
-一个 `SITE_n` 都没设的话脚本啥也不干 直接用仓库里那份 `config.json` 本地 `npm run dev` 走的是 vite 直接起 也不会触发这个脚本
-
-可以只有一个 `SITE` 不强制 `SITE_2` `SITE_3` 之类的
+如果没有设置任何 `SITE_n`，构建脚本不会生成新的主控配置，会继续使用仓库里的默认 `config.json`。本地 `npm run dev` 由 Vite 直接启动，也不会触发构建期环境变量注入。
