@@ -42,6 +42,7 @@ Fork本仓库, 然后在cloudflare pages / vercel 直接部署，绑定域名
 {
   "user_preferences":{
     "site_name": "NodeGet Status",
+    "site_title": "",
     "site_logo": "",
     "footer": "Powered by NodeGet",
     "dashboard_url": "https://dash.nodeget.com/",
@@ -73,6 +74,7 @@ Fork本仓库, 然后在cloudflare pages / vercel 直接部署，绑定域名
 
 ```
 SITE_NAME=狼牙的探针
+SITE_TITLE=NodeGet - StatusShow
 SITE_LOGO=https://example.com/logo.png
 SITE_FOOTER=Powered by NodeGet
 SITE_DASHBOARD_URL=https://dash.nodeget.com/
