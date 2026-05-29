@@ -57,6 +57,7 @@ export function buildEnvConfigOld() {
       default_color_mode: process.env.SITE_DEFAULT_COLOR_MODE,
       show_sponsored_footer: parseBooleanEnv(process.env.SITE_SHOW_SPONSORED_FOOTER),
       card_latency_monitor_name: process.env.SITE_CARD_LATENCY_MONITOR_NAME,
+      latency_aggregate_route: process.env.SITE_LATENCY_AGGREGATE_ROUTE,
       show_value_stats_card: parseBooleanEnv(process.env.SITE_SHOW_VALUE_STATS_CARD),
       show_online_total_card: parseBooleanEnv(process.env.SITE_SHOW_ONLINE_TOTAL_CARD),
       show_expiring_7_days_card: parseBooleanEnv(process.env.SITE_SHOW_EXPIRING_7_DAYS_CARD),

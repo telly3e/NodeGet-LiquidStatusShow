@@ -21,14 +21,34 @@ function normalizeTs(ts: number) {
   return ts < 1_000_000_000_000 ? ts * 1000 : ts
 }
 
+function resultNumber(row: TaskQueryResult, key: string) {
+  const value = row.task_event_result?.[key]
+  return typeof value === 'number' ? value : null
+}
+
+function sampleCount(row: TaskQueryResult) {
+  const count = resultNumber(row, 'sample_count')
+  return count != null && count > 0 ? count : 1
+}
+
+function failureCount(row: TaskQueryResult) {
+  const count = resultNumber(row, 'failure_count')
+  if (count != null && count >= 0) return count
+  return row.success ? 0 : 1
+}
+
+function hasLoss(row: TaskQueryResult) {
+  return failureCount(row) > 0
+}
+
 function pickValue(row: TaskQueryResult, type: LatencyType): number | null {
-  const v = row.task_event_result?.[type]
-  return row.success && typeof v === 'number' ? v : null
+  const value = resultNumber(row, type)
+  return value != null ? value : null
 }
 
 function seriesNames(rows: TaskQueryResult[]) {
   const set = new Set<string>()
-  for (const r of rows) set.add(r.cron_source || '未知')
+  for (const row of rows) set.add(row.cron_source || '未知')
   return [...set].sort((a, b) => a.localeCompare(b))
 }
 
@@ -44,6 +64,16 @@ export interface ChartSeries {
 
 export interface LatencyChartOptions {
   maxPoints?: number
+}
+
+export interface LatencyChartResult {
+  data: ChartPoint[]
+  series: ChartSeries[]
+  lossPoints: number[]
+}
+
+export function lossKey(name: string) {
+  return `__loss__:${name}`
 }
 
 export type LatencyHealthState = 'ok' | 'loss' | 'missing'
@@ -81,7 +111,10 @@ function ensurePoint(byTs: Map<number, ChartPoint>, t: number, names: string[]) 
   let point = byTs.get(t)
   if (!point) {
     point = { t }
-    for (const n of names) point[n] = null
+    for (const name of names) {
+      point[name] = null
+      point[lossKey(name)] = null
+    }
     byTs.set(t, point)
   }
   return point
@@ -90,7 +123,7 @@ function ensurePoint(byTs: Map<number, ChartPoint>, t: number, names: string[]) 
 function addGapBreaks(byTs: Map<number, ChartPoint>, rows: TaskQueryResult[], names: string[]) {
   for (const name of names) {
     const timestamps = rows
-      .filter(row => (row.cron_source || '鏈煡') === name)
+      .filter(row => (row.cron_source || '未知') === name)
       .map(row => normalizeTs(row.timestamp))
       .sort((a, b) => a - b)
     const expected = medianDelta(timestamps)
@@ -143,26 +176,44 @@ export function buildLatencyChart(
   rows: TaskQueryResult[],
   type: LatencyType,
   options: LatencyChartOptions = {},
-) {
+): LatencyChartResult {
   const names = seriesNames(rows)
   const series: ChartSeries[] = names.map(name => ({ name, color: latencyColor(name) }))
   const byTs = new Map<number, ChartPoint>()
+  const lossFlags = new Map<number, Set<string>>()
 
-  for (const r of rows) {
-    const t = normalizeTs(r.timestamp)
-    let pt = byTs.get(t)
-    if (!pt) {
-      pt = { t }
-      for (const n of names) pt[n] = null
-      byTs.set(t, pt)
+  for (const row of rows) {
+    const t = normalizeTs(row.timestamp)
+    const name = row.cron_source || '未知'
+    const point = ensurePoint(byTs, t, names)
+    point[name] = pickValue(row, type)
+    if (hasLoss(row)) {
+      let set = lossFlags.get(t)
+      if (!set) {
+        set = new Set()
+        lossFlags.set(t, set)
+      }
+      set.add(name)
     }
-    pt[r.cron_source || '未知'] = pickValue(r, type)
   }
 
   addGapBreaks(byTs, rows, names)
   let data = [...byTs.values()].sort((a, b) => a.t - b.t)
-  data = downsampleChartData(data, names, options.maxPoints)
-  return { data, series }
+
+  const lastGood: Record<string, number> = {}
+  for (const point of data) {
+    for (const name of names) {
+      const value = point[name]
+      if (typeof value === 'number') lastGood[name] = value
+    }
+    const lost = lossFlags.get(point.t)
+    if (lost) {
+      for (const name of lost) point[lossKey(name)] = lastGood[name] ?? 0
+    }
+  }
+
+  data = downsampleChartData(data, [...names, ...names.map(lossKey)], options.maxPoints)
+  return { data, series, lossPoints: [...lossFlags.keys()].sort((a, b) => a - b) }
 }
 
 export function buildLatencyHealth(
@@ -180,8 +231,12 @@ export function buildLatencyHealth(
 
   return names.map<LatencyHealthRow>(name => {
     const sourceRows = rows
-      .filter(row => (row.cron_source || '鏈煡') === name)
-      .map(row => ({ row, t: normalizeTs(row.timestamp), value: pickValue(row, type) }))
+      .filter(row => (row.cron_source || '未知') === name)
+      .map(row => ({
+        t: normalizeTs(row.timestamp),
+        value: pickValue(row, type),
+        loss: hasLoss(row),
+      }))
 
     const bins = Array.from({ length: maxBins }, (_, index) => {
       const binStart = start + index * binMs
@@ -189,7 +244,7 @@ export function buildLatencyHealth(
       const samples = sourceRows.filter(sample => sample.t >= binStart && sample.t < binEnd)
       let state: LatencyHealthState = 'missing'
       if (samples.length) {
-        state = samples.some(sample => sample.value == null) ? 'loss' : 'ok'
+        state = samples.some(sample => sample.loss || sample.value == null) ? 'loss' : 'ok'
       }
       return { start: binStart, end: binEnd, state }
     })
@@ -208,21 +263,26 @@ export interface LatencyStats {
 
 export function computeLatencyStats(rows: TaskQueryResult[], type: LatencyType): LatencyStats[] {
   const stats = seriesNames(rows).map<LatencyStats>(name => {
-    const list = rows.filter(r => (r.cron_source || '未知') === name)
-    const vals: number[] = []
-    for (const r of list) {
-      const v = pickValue(r, type)
-      if (v != null) vals.push(v)
+    const list = rows.filter(row => (row.cron_source || '未知') === name)
+    const values: number[] = []
+    let totalSamples = 0
+    let failedSamples = 0
+
+    for (const row of list) {
+      totalSamples += sampleCount(row)
+      failedSamples += failureCount(row)
+      const value = pickValue(row, type)
+      if (value != null) values.push(value)
     }
 
     const color = latencyColor(name)
-    const lossRate = list.length ? ((list.length - vals.length) / list.length) * 100 : 0
-    if (!vals.length) return { name, color, avg: null, jitter: null, lossRate }
+    const lossRate = totalSamples ? (failedSamples / totalSamples) * 100 : 0
+    if (!values.length) return { name, color, avg: null, jitter: null, lossRate }
 
-    const avg = vals.reduce((s, v) => s + v, 0) / vals.length
+    const avg = values.reduce((sum, value) => sum + value, 0) / values.length
     const jitter =
-      vals.length >= 2
-        ? vals.slice(1).reduce((s, v, i) => s + Math.abs(v - vals[i]), 0) / (vals.length - 1)
+      values.length >= 2
+        ? values.slice(1).reduce((sum, value, index) => sum + Math.abs(value - values[index]), 0) / (values.length - 1)
         : null
 
     return { name, color, avg, jitter, lossRate }

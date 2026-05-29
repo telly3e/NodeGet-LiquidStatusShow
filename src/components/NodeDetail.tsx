@@ -23,12 +23,16 @@ import {
   buildLatencyHealth,
   buildLatencyChart,
   computeLatencyStats,
+  lossKey,
+  type ChartPoint,
+  type ChartSeries,
   type LatencyHealthRow,
   type LatencyStats,
 } from '../utils/latency'
 import { useNodeLatency } from '../hooks/useNodeLatency'
 import type { BackendPool } from '../api/pool'
 import type { HistorySample, LatencyType, Node, NodeMeta, TaskQueryResult } from '../types'
+import { convertToCny, formatCny, formatMoney, normalizeCurrencyUnit } from '../utils/currency'
 
 const TOOLTIP_STYLE = {
   background: 'hsl(var(--popover))',
@@ -43,18 +47,28 @@ const LATENCY_ACTIVE_DOT = {
 }
 
 const LATENCY_CHART_MAX_POINTS = 720
-const LATENCY_HEALTH_BINS = 96
+const LATENCY_HEALTH_BINS = 120
 
-const LATENCY_RANGE = { label: '6h', ms: 6 * 60 * 60 * 1000 } as const
+const LATENCY_RANGE = { label: '24h', ms: 24 * 60 * 60 * 1000 } as const
+const LATENCY_LOSS_COLOR = '#ef4444'
 
 interface Props {
   node: Node | null
   onClose: () => void
   showSource?: boolean
   pool: BackendPool | null
+  cnyRates: Record<string, number>
+  latencyAggregateRoute?: string
 }
 
-export function NodeDetail({ node, onClose, showSource, pool }: Props) {
+export function NodeDetail({
+  node,
+  onClose,
+  showSource,
+  pool,
+  cnyRates,
+  latencyAggregateRoute = '',
+}: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
   const [stuck, setStuck] = useState(false)
@@ -90,6 +104,7 @@ export function NodeDetail({ node, onClose, showSource, pool }: Props) {
     node?.source ?? null,
     node?.uuid ?? null,
     LATENCY_RANGE.ms,
+    { aggregateRoute: latencyAggregateRoute },
   )
 
   if (!node) return null
@@ -215,9 +230,8 @@ export function NodeDetail({ node, onClose, showSource, pool }: Props) {
 
         {(latencyLoading || tcpData.length > 0 || pingData.length > 0) && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
+            <div>
               <div className="text-xs uppercase tracking-wide text-muted-foreground">延迟监控</div>
-              <div className="font-mono text-xs text-muted-foreground">最近 {LATENCY_RANGE.label}</div>
             </div>
 
             {latencyLoading && tcpData.length === 0 && pingData.length === 0 && (
@@ -289,7 +303,7 @@ export function NodeDetail({ node, onClose, showSource, pool }: Props) {
             <KV k="数据更新" v={relativeAge(d?.timestamp)} />
           </Section>
 
-          {hasCost(node.meta) && <CostSection meta={node.meta} />}
+          {hasCost(node.meta) && <CostSection meta={node.meta} cnyRates={cnyRates} />}
         </div>
       </div>
     </div>
@@ -416,6 +430,59 @@ interface LatencyBlockProps {
 
 const ms = (v: number) => `${v.toFixed(1)} ms`
 
+interface LatencyTooltipProps {
+  active?: boolean
+  payload?: Array<{ payload?: ChartPoint }>
+  series: ChartSeries[]
+}
+
+// 自定义延迟 tooltip：逐来源显示延迟；该来源若在此刻丢包则显示「丢包」(红色)，无样本则不列出。
+function LatencyTooltip({ active, payload, series }: LatencyTooltipProps) {
+  if (!active || !payload?.length) return null
+  const point = payload[0]?.payload
+  if (!point) return null
+
+  const rows = series
+    .map(s => {
+      const v = point[s.name]
+      const lost = point[lossKey(s.name)] != null
+      if (typeof v !== 'number' && !lost) return null
+      return { name: s.name, color: s.color, value: typeof v === 'number' ? v : null, lost }
+    })
+    .filter((r): r is { name: string; color: string; value: number | null; lost: boolean } => r != null)
+
+  if (!rows.length) return null
+
+  return (
+    <div style={{ ...TOOLTIP_STYLE, padding: '6px 9px', lineHeight: 1.5 }}>
+      <div style={{ color: 'hsl(var(--muted-foreground))', marginBottom: 3 }}>
+        {new Date(Number(point.t)).toLocaleTimeString()}
+      </div>
+      {rows.map(r => (
+        <div key={r.name} style={{ display: 'flex', gap: 14, justifyContent: 'space-between' }}>
+          <span style={{ color: r.color }}>{r.name}</span>
+          <span style={{ fontWeight: 600 }}>
+            {r.value != null && (
+              <span style={{ color: 'hsl(var(--foreground))' }}>{ms(r.value)}</span>
+            )}
+            {r.lost && (
+              <span
+                style={{
+                  color: LATENCY_LOSS_COLOR,
+                  fontWeight: 700,
+                  marginLeft: r.value != null ? 6 : 0,
+                }}
+              >
+                丢包
+              </span>
+            )}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function formatDuration(msValue: number) {
   const minutes = Math.max(1, Math.round(msValue / 60_000))
   if (minutes < 60) return `${minutes}m`
@@ -440,10 +507,6 @@ function LatencyBlock({ title, rows, type, loading, rangeLabel, rangeMs }: Laten
     [rows, type],
   )
   const stats = useMemo(() => computeLatencyStats(rows, type), [rows, type])
-  const healthRows = useMemo(
-    () => buildLatencyHealth(rows, type, { rangeMs, maxBins: LATENCY_HEALTH_BINS }),
-    [rangeMs, rows, type],
-  )
   const [hidden, setHidden] = useState<Set<string>>(() => new Set())
   const empty = data.length === 0
   const latestTs = data.at(-1)?.t ?? Date.now()
@@ -451,6 +514,13 @@ function LatencyBlock({ title, rows, type, loading, rangeLabel, rangeMs }: Laten
   const actualStart = data[0]?.t
   const actualSpan =
     actualStart != null && data.length > 1 ? Math.max(0, latestTs - actualStart) : 0
+  // 探测高频时单次查询的 limit 可能覆盖不到完整请求窗口，曲线只到实际跨度；
+  // 让连通性条带与曲线用同一时间跨度，两个时间轴对齐、不出现错位的空白。
+  const healthRangeMs = actualSpan > 0 ? actualSpan : rangeMs
+  const healthRows = useMemo(
+    () => buildLatencyHealth(rows, type, { rangeMs: healthRangeMs, maxBins: LATENCY_HEALTH_BINS }),
+    [healthRangeMs, rows, type],
+  )
 
   const visibleSeries = series.filter(s => !hidden.has(s.name))
   const visibleHealthRows = healthRows.filter(row => !hidden.has(row.name))
@@ -477,7 +547,7 @@ function LatencyBlock({ title, rows, type, loading, rangeLabel, rangeMs }: Laten
               <XAxis
                 dataKey="t"
                 type="number"
-                domain={[requestedStart, latestTs]}
+                domain={[actualStart ?? requestedStart, latestTs]}
                 scale="time"
                 tickFormatter={t => formatLatencyTick(Number(t), rangeMs)}
                 tick={{ fontSize: 11 }}
@@ -488,13 +558,13 @@ function LatencyBlock({ title, rows, type, loading, rangeLabel, rangeMs }: Laten
                 tick={{ fontSize: 11 }}
                 stroke="hsl(var(--muted-foreground))"
                 width={48}
-                domain={['auto', 'auto']}
+                domain={[0, 'auto']}
               />
               <Tooltip
-                contentStyle={TOOLTIP_STYLE}
-                labelFormatter={t => new Date(Number(t)).toLocaleTimeString()}
-                formatter={(v: number) => ms(Number(v))}
                 cursor={{ stroke: 'hsl(var(--muted-foreground))', strokeOpacity: 0.24 }}
+                content={(props: { active?: boolean; payload?: Array<{ payload?: ChartPoint }> }) => (
+                  <LatencyTooltip active={props.active} payload={props.payload} series={visibleSeries} />
+                )}
               />
               {visibleSeries.map(s => (
                 <Line
@@ -522,13 +592,13 @@ function LatencyBlock({ title, rows, type, loading, rangeLabel, rangeMs }: Laten
       </div>
 
       {visibleHealthRows.length > 0 && (
-        <LatencyHealthStrip rows={visibleHealthRows} rangeMs={rangeMs} />
+        <LatencyHealthStrip rows={visibleHealthRows} rangeMs={healthRangeMs} />
       )}
 
       {stats.length > 0 && (
         <div className="mt-3 border-t pt-3">
           <div className="px-2 pb-2 text-[11px] text-muted-foreground">
-            {rows.length} samples · actual span {formatDuration(actualSpan)}
+            {rows.length} 个样本 · {series.length} 来源 · 实际跨度 {formatDuration(actualSpan)}
           </div>
           <div className="flex items-center px-2 pb-1 text-[11px] text-muted-foreground">
             <span className="flex-1">来源</span>
@@ -652,11 +722,15 @@ function LatencyStatsRow({
   )
 }
 
-function CostSection({ meta }: { meta: NodeMeta }) {
+function CostSection({ meta, cnyRates }: { meta: NodeMeta; cnyRates: Record<string, number> }) {
   const days = remainingDays(meta.expireTime)
   const value = remainingValue(meta)
   const progress = cycleProgress(meta)
   const unit = meta.priceUnit || '$'
+  const cycleCny = convertToCny(meta.price, unit, cnyRates)
+  const monthlyCny = cycleCny == null ? null : cycleCny * (30 / meta.priceCycle)
+  const valueCny = convertToCny(value, unit, cnyRates)
+  const showConverted = normalizeCurrencyUnit(unit) !== 'CNY'
 
   let daysLabel: string
   let daysClass = ''
@@ -685,10 +759,20 @@ function CostSection({ meta }: { meta: NodeMeta }) {
 
   return (
     <Section title="费用">
-      <KV k="月费" v={meta.price > 0 ? `${unit}${meta.price} / ${meta.priceCycle} 天` : null} />
+      <KV k="周期费用" v={meta.price > 0 ? `${formatMoney(meta.price, unit)} / ${meta.priceCycle} 天` : null} />
+      {showConverted && (
+        <KV
+          k="折合周期费用"
+          v={cycleCny != null ? `${formatCny(cycleCny)} / ${meta.priceCycle} 天` : '暂无汇率'}
+        />
+      )}
+      <KV k="月均费用" v={monthlyCny != null ? `${formatCny(monthlyCny)} / 30 天` : null} />
       <KV k="到期" v={meta.expireTime || null} />
       <KV k="剩余" v={<span className={daysClass}>{daysLabel}</span>} />
-      <KV k="剩余价值" v={meta.price > 0 ? `${unit}${value.toFixed(2)}` : null} />
+      <KV k="剩余价值" v={meta.price > 0 ? formatMoney(value, unit) : null} />
+      {showConverted && (
+        <KV k="折合剩余价值" v={valueCny != null ? formatCny(valueCny) : '暂无汇率'} />
+      )}
 
       {meta.expireTime && days != null && (
         <div className="mt-3 h-1.5 w-full rounded-full bg-muted overflow-hidden">
