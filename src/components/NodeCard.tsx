@@ -35,10 +35,12 @@ export function NodeCard({
   node,
   pool,
   cardLatencyMonitorName = '',
+  latencyAggregateRoute = '',
 }: {
   node: Node
   pool: BackendPool | null
   cardLatencyMonitorName?: string
+  latencyAggregateRoute?: string
 }) {
   const u = deriveUsage(node)
   const os = osLabel(node)
@@ -54,6 +56,7 @@ export function NodeCard({
     CARD_LATENCY_WINDOW_MS,
     {
       ...CARD_LATENCY_OPTIONS,
+      aggregateRoute: latencyAggregateRoute,
       cronSource: latencyMonitorName,
     },
   )

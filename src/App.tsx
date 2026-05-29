@@ -3,6 +3,7 @@ import { AlertTriangle, CalendarRange, Coins, Loader2, Server } from 'lucide-rea
 import { Alert, AlertDescription, AlertTitle } from './components/ui/alert'
 import { Card } from './components/ui/card'
 import { useConfig } from './hooks/useConfig'
+import { useCnyExchangeRates } from './hooks/useCnyExchangeRates'
 import { useNodes } from './hooks/useNodes'
 import { Background } from './components/Background'
 import { Navbar } from './components/Navbar'
@@ -18,6 +19,7 @@ const WorldMap = lazy(() =>
 )
 import { deriveUsage, displayName } from './utils/derive'
 import { remainingDays, remainingValue } from './utils/cost'
+import { convertToCny, formatCny } from './utils/currency'
 import type { Node, Sort, View } from './types'
 
 const DEFAULT_LOGO = `${import.meta.env.BASE_URL}logo.png`
@@ -61,34 +63,14 @@ interface SidebarCardVisibility {
   expiringSoon: boolean
 }
 
-function money(value: number, unit: string) {
-  const code = unit.trim()
-  const upper = code.toUpperCase()
-  if (code === '¥' || code === '￥' || upper === 'CNY' || upper === 'RMB') {
-    return `¥${value.toFixed(2)}`
-  }
-  const prefix = code === '$' || upper === 'USD' ? '$' : ''
-  const suffix = prefix ? '' : code ? ` ${code}` : ''
-  return `${prefix}${value.toFixed(2)}${suffix}`
-}
-
 function billingCycle(meta: Node['meta']) {
   return Number.isFinite(meta.priceCycle) && meta.priceCycle > 0 ? meta.priceCycle : 30
-}
-
-function primaryUnit(nodes: Node[]) {
-  const counts = new Map<string, number>()
-  for (const node of nodes) {
-    if (node.meta.price <= 0) continue
-    const unit = node.meta.priceUnit || 'CNY'
-    counts.set(unit, (counts.get(unit) ?? 0) + 1)
-  }
-  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'CNY'
 }
 
 export function App() {
   const { config, error: configError } = useConfig()
   const { nodes, errors, pool } = useNodes(config)
+  const { rates: cnyRates, loading: ratesLoading } = useCnyExchangeRates()
 
   const [view, setView] = useState<View>(initialView)
   const [sort, setSort] = useState<Sort>(initialSort)
@@ -254,6 +236,7 @@ export function App() {
   }
   const showSidebar = Object.values(sidebarVisibility).some(Boolean)
   const cardLatencyMonitorName = config.user_preferences.card_latency_monitor_name?.trim() ?? ''
+  const latencyAggregateRoute = config.user_preferences.latency_aggregate_route?.trim() ?? ''
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -297,7 +280,12 @@ export function App() {
           <div className={showSidebar ? 'grid grid-cols-1 gap-4 items-start lg:grid-cols-[260px_minmax(0,1fr)]' : 'grid grid-cols-1 gap-4 items-start'}>
             {showSidebar && (
               <aside className="hidden space-y-4 lg:block">
-                <ValueSidebar nodes={costNodes} visibility={sidebarVisibility} />
+                <ValueSidebar
+                  nodes={costNodes}
+                  visibility={sidebarVisibility}
+                  cnyRates={cnyRates}
+                  ratesLoading={ratesLoading}
+                />
               </aside>
             )}
             <div className="grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))] gap-4">
@@ -307,6 +295,7 @@ export function App() {
                   node={n}
                   pool={pool}
                   cardLatencyMonitorName={cardLatencyMonitorName}
+                  latencyAggregateRoute={latencyAggregateRoute}
                 />
               ))}
             </div>
@@ -350,12 +339,24 @@ export function App() {
         onClose={() => setSelected(null)}
         showSource={(config.site_tokens?.length ?? 0) > 1}
         pool={pool}
+        cnyRates={cnyRates}
+        latencyAggregateRoute={latencyAggregateRoute}
       />
     </div>
   )
 }
 
-function ValueSidebar({ nodes, visibility }: { nodes: Node[]; visibility: SidebarCardVisibility }) {
+function ValueSidebar({
+  nodes,
+  visibility,
+  cnyRates,
+  ratesLoading,
+}: {
+  nodes: Node[]
+  visibility: SidebarCardVisibility
+  cnyRates: Record<string, number>
+  ratesLoading: boolean
+}) {
   const total = nodes.length
   const online = nodes.filter(node => node.online).length
   const expiring = nodes
@@ -366,7 +367,9 @@ function ValueSidebar({ nodes, visibility }: { nodes: Node[]; visibility: Sideba
 
   return (
     <>
-      {visibility.valueStats && <ValueStatsCard nodes={nodes} />}
+      {visibility.valueStats && (
+        <ValueStatsCard nodes={nodes} cnyRates={cnyRates} ratesLoading={ratesLoading} />
+      )}
       {visibility.onlineTotal && (
         <SidebarMetricCard
           icon={<Server className="h-4 w-4" />}
@@ -388,16 +391,28 @@ function ValueSidebar({ nodes, visibility }: { nodes: Node[]; visibility: Sideba
   )
 }
 
-function ValueStatsCard({ nodes }: { nodes: Node[] }) {
+function ValueStatsCard({
+  nodes,
+  cnyRates,
+  ratesLoading,
+}: {
+  nodes: Node[]
+  cnyRates: Record<string, number>
+  ratesLoading: boolean
+}) {
   const priced = nodes.filter(node => node.meta.price > 0)
-  const unit = primaryUnit(priced)
-  const monthlyTotal = priced.reduce(
-    (sum, node) => sum + node.meta.price * (30 / billingCycle(node.meta)),
-    0,
-  )
-  const remain = priced.reduce((sum, node) => sum + remainingValue(node.meta), 0)
-  const monthlyAverage = priced.length ? monthlyTotal / priced.length : 0
+  const converted = priced
+    .map(node => {
+      const monthly = node.meta.price * (30 / billingCycle(node.meta))
+      const monthlyCny = convertToCny(monthly, node.meta.priceUnit, cnyRates)
+      const remainCny = convertToCny(remainingValue(node.meta), node.meta.priceUnit, cnyRates)
+      return monthlyCny == null || remainCny == null ? null : { monthlyCny, remainCny }
+    })
+    .filter((item): item is { monthlyCny: number; remainCny: number } => item != null)
+  const monthlyTotal = converted.reduce((sum, item) => sum + item.monthlyCny, 0)
+  const remain = converted.reduce((sum, item) => sum + item.remainCny, 0)
   const yearlyRenewal = monthlyTotal * 12
+  const skipped = priced.length - converted.length
 
   return (
     <Card className="liquid-card liquid-card-static relative overflow-hidden p-4">
@@ -408,18 +423,24 @@ function ValueStatsCard({ nodes }: { nodes: Node[] }) {
         </div>
         <div className="min-w-0">
           <div className="font-bold leading-tight">价值统计</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">{unit}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            {ratesLoading ? '人民币 · 汇率更新中' : '￥CNY'}
+          </div>
         </div>
       </div>
 
       <div className="glass-panel relative mt-4 rounded-md border border-dashed p-4">
-        <ValueRow label="剩余价值" value={money(remain, unit)} strong />
-        <ValueRow label="平均月续费" value={money(monthlyAverage, unit)} />
-        <ValueRow label="年续费" value={money(yearlyRenewal, unit)} />
+        <ValueRow label="剩余价值" value={formatCny(remain)} strong />
+        <ValueRow label="月续费" value={formatCny(monthlyTotal)} />
+        <ValueRow label="年续费" value={formatCny(yearlyRenewal)} />
       </div>
 
       <div className="relative mt-3 text-xs text-muted-foreground">
-        {priced.length ? `已设置价格的节点 ${priced.length} 台` : '暂无已设置价格的节点'}
+        {priced.length
+          ? skipped
+            ? `已统计 ${converted.length} 台，${skipped} 台币种暂无汇率`
+            : `已设置价格的节点 ${priced.length} 台`
+          : '暂无已设置价格的节点'}
       </div>
     </Card>
   )

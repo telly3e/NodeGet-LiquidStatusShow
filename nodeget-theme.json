@@ -59,6 +59,13 @@
         "help": "Cron monitor name used for the card latency preview. Leave empty to hide the preview."
       },
       {
+        "key": "latency_aggregate_route",
+        "name": "Latency aggregate route",
+        "type": "string",
+        "default": "",
+        "help": "Optional NodeGet Worker route used for cached latency aggregation. Leave empty to query raw task data directly."
+      },
+      {
         "key": "show_value_stats_card",
         "name": "Show value statistics card",
         "type": "switch",
