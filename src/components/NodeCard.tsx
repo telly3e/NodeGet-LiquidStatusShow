@@ -10,7 +10,7 @@ import {
   RadioTower,
   type LucideIcon,
 } from 'lucide-react'
-import { useMemo, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Card } from './ui/card'
 import { Flag } from './Flag'
 import { StatusDot } from './StatusDot'
@@ -19,6 +19,7 @@ import { cpuLabel, deriveUsage, displayName, distroLogo, osLabel, virtLabel } fr
 import { cn } from '../utils/cn'
 import { computeLatencyStats } from '../utils/latency'
 import { useNodeLatency } from '../hooks/useNodeLatency'
+import { useNodeLatencyPreview, type LatencyPreview } from '../hooks/useNodeLatencyPreview'
 import type { BackendPool } from '../api/pool'
 import type { LatencyType, Node, TaskQueryResult } from '../types'
 
@@ -42,6 +43,8 @@ export function NodeCard({
   cardLatencyMonitorName?: string
   latencyAggregateRoute?: string
 }) {
+  const cardRef = useRef<HTMLAnchorElement>(null)
+  const [latencyVisible, setLatencyVisible] = useState(!cardLatencyMonitorName.trim())
   const u = deriveUsage(node)
   const os = osLabel(node)
   const logo = distroLogo(node)
@@ -49,8 +52,44 @@ export function NodeCard({
   const cpu = cpuLabel(node)
   const load = loadUsage(node)
   const latencyMonitorName = cardLatencyMonitorName.trim()
-  const { pingData, tcpData, loading: latencyLoading } = useNodeLatency(
-    latencyMonitorName ? pool : null,
+
+  useEffect(() => {
+    if (!latencyMonitorName) {
+      setLatencyVisible(true)
+      return
+    }
+    if (latencyVisible) return
+    const element = cardRef.current
+    if (!element || typeof IntersectionObserver === 'undefined') {
+      setLatencyVisible(true)
+      return
+    }
+
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries.some(entry => entry.isIntersecting || entry.intersectionRatio > 0)) {
+          setLatencyVisible(true)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: '280px 0px' },
+    )
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [latencyMonitorName, latencyVisible])
+
+  const shouldTryPreview = Boolean(latencyMonitorName && latencyAggregateRoute.trim() && latencyVisible)
+  const { data: latencyPreview, error: previewError, loading: previewLoading } = useNodeLatencyPreview(
+    shouldTryPreview ? pool : null,
+    node.source,
+    node.uuid,
+    CARD_LATENCY_WINDOW_MS,
+    latencyMonitorName,
+    latencyAggregateRoute,
+  )
+  const useRawFallback = Boolean(latencyMonitorName && latencyVisible && (!latencyAggregateRoute.trim() || previewError))
+  const { pingData, tcpData, loading: rawLatencyLoading } = useNodeLatency(
+    useRawFallback ? pool : null,
     node.source,
     node.uuid,
     CARD_LATENCY_WINDOW_MS,
@@ -60,13 +99,17 @@ export function NodeCard({
       cronSource: latencyMonitorName,
     },
   )
-  const latency = useMemo(
-    () => firstLatency(tcpData, 'tcp_ping', latencyMonitorName) ?? firstLatency(pingData, 'ping', latencyMonitorName),
-    [tcpData, pingData, latencyMonitorName],
+  const latency = useMemo<LatencyPreview | null>(
+    () =>
+      latencyPreview ??
+      firstLatency(tcpData, 'tcp_ping', latencyMonitorName) ??
+      firstLatency(pingData, 'ping', latencyMonitorName),
+    [latencyPreview, tcpData, pingData, latencyMonitorName],
   )
+  const latencyLoading = !latencyVisible ? true : shouldTryPreview && !previewError ? previewLoading : rawLatencyLoading
 
   return (
-    <a href={`#${encodeURIComponent(node.uuid)}`} className="block h-full">
+    <a ref={cardRef} href={`#${encodeURIComponent(node.uuid)}`} className="block h-full">
       <Card
         className={cn(
           'group relative h-full overflow-hidden p-4 transition',
@@ -237,7 +280,7 @@ function firstLatency(rows: TaskQueryResult[], type: LatencyType, name: string):
     type,
     avg: stats?.avg ?? null,
     lossRate: stats?.lossRate ?? 0,
-    samples,
+    samples: samples.length < 18 ? Array(18 - samples.length).fill(null).concat(samples) : samples,
   }
 }
 

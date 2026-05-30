@@ -7,9 +7,10 @@ const DEFAULT_CLEANUP_GRACE_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 const DEFAULT_RAW_QUERY_LIMIT = 40000;
 const DEFAULT_KV_NAMESPACE = "latency_aggregate_cache";
+const DEFAULT_PREVIEW_SAMPLE_LIMIT = 18;
 const TYPES = new Set(["tcp_ping", "ping"]);
 const refreshJobs = new Map();
-const INDEX_KEY = "latency:v1:index";
+const INDEX_KEY = "latency:v2:index";
 
 function envValue(env, key, fallback = "") {
   return env[key] ?? env[key.toLowerCase()] ?? fallback;
@@ -25,6 +26,11 @@ function parseList(value) {
     .split(",")
     .map(item => item.trim())
     .filter(Boolean);
+}
+
+function parseBoolean(value) {
+  if (value === true || value === "true" || value === "1" || value === 1) return true;
+  return false;
 }
 
 function json(data, status = 200) {
@@ -48,6 +54,8 @@ async function parseRouteParams(request) {
     from: Number(url.searchParams.get("from") || 0) || 0,
     to: Number(url.searchParams.get("to") || Date.now()) || Date.now(),
     cron_source: (url.searchParams.get("cron_source") || "").trim(),
+    preview: parseBoolean(url.searchParams.get("preview")),
+    sample_limit: Number(url.searchParams.get("sample_limit") || DEFAULT_PREVIEW_SAMPLE_LIMIT) || DEFAULT_PREVIEW_SAMPLE_LIMIT,
   };
 
   if (request.method !== "POST") {
@@ -62,6 +70,10 @@ async function parseRouteParams(request) {
       from: Number(body?.from || fromQuery.from || 0) || 0,
       to: Number(body?.to || fromQuery.to || Date.now()) || Date.now(),
       cron_source: String(body?.cron_source || fromQuery.cron_source || "").trim(),
+      preview: parseBoolean(body?.preview) || fromQuery.preview,
+      sample_limit:
+        Number(body?.sample_limit || fromQuery.sample_limit || DEFAULT_PREVIEW_SAMPLE_LIMIT) ||
+        DEFAULT_PREVIEW_SAMPLE_LIMIT,
     };
   } catch {
     return fromQuery;
@@ -229,12 +241,26 @@ function filterRows(rows, from, to, cronSource) {
   });
 }
 
-function cacheKey(type, uuid) {
-  return `latency:v1:${type}:${uuid}`;
+function cacheScope(cronSource) {
+  return cronSource ? encodeURIComponent(String(cronSource).trim()) : "__all__";
+}
+
+function cacheKey(type, uuid, cronSource) {
+  return `latency:v2:${type}:${uuid}:${cacheScope(cronSource)}`;
 }
 
 function rowKey(row) {
   return `${String(row.uuid || "")}|${Number(row.timestamp || 0)}|${String(row.cron_source || "")}`;
+}
+
+function earliestRowTimestamp(rows) {
+  let min = 0;
+  for (const row of rows || []) {
+    const timestamp = Number(row.timestamp || 0);
+    if (!timestamp) continue;
+    if (!min || timestamp < min) min = timestamp;
+  }
+  return min;
 }
 
 function latestRowTimestamp(rows) {
@@ -269,11 +295,39 @@ function buildSegments(from, to, segmentMs) {
   return segments;
 }
 
+function clampWindow(now, retentionMs, from, to) {
+  const cutoff = now - retentionMs;
+  const safeTo = Math.min(Number(to || now) || now, now);
+  const rawFrom = Number(from || 0) || cutoff;
+  const safeFrom = Math.max(cutoff, Math.min(rawFrom, safeTo));
+  return {
+    cutoff,
+    from: safeFrom,
+    to: Math.max(safeFrom, safeTo),
+  };
+}
+
+function cacheCoverage(payload) {
+  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  const earliest = earliestRowTimestamp(rows);
+  const latest = latestRowTimestamp(rows);
+  return {
+    from: Number(payload?.covered_from || 0) || earliest,
+    to: Number(payload?.covered_to || 0) || latest,
+  };
+}
+
+function coversRange(payload, from, to) {
+  const coverage = cacheCoverage(payload);
+  return Boolean(coverage.from && coverage.to && coverage.from <= from && coverage.to >= to);
+}
+
 function indexEntry(key, payload, now) {
   return {
     key,
     uuid: String(payload?.uuid || ""),
     type: String(payload?.type || ""),
+    cron_source: String(payload?.cron_source || ""),
     generated_at: Number(payload?.generated_at || now) || now,
     retention_ms: Number(payload?.retention_ms || 0) || 0,
     touched_at: now,
@@ -284,14 +338,14 @@ async function readIndex(env) {
   const index = await kvRead(env, INDEX_KEY);
   if (!index || typeof index !== "object") {
     return {
-      version: 1,
+      version: 2,
       updated_at: 0,
       entries: [],
     };
   }
 
   return {
-    version: 1,
+    version: 2,
     updated_at: Number(index.updated_at || 0) || 0,
     entries: Array.isArray(index.entries) ? index.entries : [],
   };
@@ -299,7 +353,7 @@ async function readIndex(env) {
 
 async function writeIndex(env, index) {
   const payload = {
-    version: 1,
+    version: 2,
     updated_at: Date.now(),
     entries: Array.isArray(index?.entries) ? index.entries : [],
   };
@@ -347,113 +401,203 @@ async function cleanupExpiredKeys(env, now, force = false) {
   return { skipped: false, removed, retained };
 }
 
-async function readTaskRows(env, uuid, type, from, to) {
+async function readTaskRows(env, uuid, type, from, to, cronSource) {
   const limit = envNumber(env, "RAW_QUERY_LIMIT", DEFAULT_RAW_QUERY_LIMIT);
+  const condition = [
+    { uuid },
+    { type },
+    { timestamp_from_to: [from, to] },
+    { limit },
+  ];
+  if (cronSource) {
+    condition.splice(2, 0, { cron_source: cronSource });
+  }
+
   return rpc(env, "task_query", {
     task_data_query: {
-      condition: [
-        { uuid },
-        { type },
-        { timestamp_from_to: [from, to] },
-        { limit },
-      ],
+      condition,
     },
   });
 }
 
-async function aggregateWindow(env, uuid, type, from, to) {
+async function aggregateWindow(env, uuid, type, from, to, cronSource) {
+  if (to <= from) return [];
+
   const bucketMs = envNumber(env, "BUCKET_MS", DEFAULT_BUCKET_MS);
   const segmentMs = envNumber(env, "SEGMENT_MS", DEFAULT_SEGMENT_MS);
   const segments = buildSegments(from, to, segmentMs);
   const rows = [];
 
   for (const [segmentFrom, segmentTo] of segments) {
-    const rawRows = await readTaskRows(env, uuid, type, segmentFrom, segmentTo);
+    const rawRows = await readTaskRows(env, uuid, type, segmentFrom, segmentTo, cronSource);
     rows.push(...aggregateRows(rawRows, type, bucketMs));
   }
 
   return mergeAggregatedRows([], rows, from);
 }
 
-async function rebuildCache(env, uuid, type, now) {
+async function rebuildCache(env, uuid, type, now, requestedFrom, requestedTo, cronSource) {
   const bucketMs = envNumber(env, "BUCKET_MS", DEFAULT_BUCKET_MS);
   const retentionMs = envNumber(env, "RETENTION_MS", DEFAULT_RETENTION_MS);
-  const from = now - retentionMs;
-  const rows = await aggregateWindow(env, uuid, type, from, now);
+  const { from, to } = clampWindow(now, retentionMs, requestedFrom, requestedTo);
+  const rows = await aggregateWindow(env, uuid, type, from, to, cronSource);
   const payload = {
-    version: 1,
+    version: 2,
     generated_at: now,
     bucket_ms: bucketMs,
     retention_ms: retentionMs,
+    covered_from: from,
+    covered_to: to,
     uuid,
     type,
+    cron_source: cronSource || "",
     rows,
   };
 
-  const written = await kvWrite(env, cacheKey(type, uuid), payload);
+  const key = cacheKey(type, uuid, cronSource);
+  const written = await kvWrite(env, key, payload);
   if (written) {
-    await touchIndex(env, cacheKey(type, uuid), payload, now);
+    await touchIndex(env, key, payload, now);
   }
   return { ...payload, cache_written: written };
 }
 
-async function refreshCache(env, cached, uuid, type, now) {
+async function refreshCache(env, cached, uuid, type, now, requestedFrom, requestedTo, cronSource, forceTailRefresh) {
   const bucketMs = envNumber(env, "BUCKET_MS", DEFAULT_BUCKET_MS);
   const retentionMs = envNumber(env, "RETENTION_MS", DEFAULT_RETENTION_MS);
   const overlapMs = envNumber(env, "INCREMENTAL_OVERLAP_MS", DEFAULT_INCREMENTAL_OVERLAP_MS);
-  const cutoff = now - retentionMs;
+  const { cutoff, from, to } = clampWindow(now, retentionMs, requestedFrom, requestedTo);
 
   if (!cached || !Array.isArray(cached.rows) || !cached.rows.length) {
-    return rebuildCache(env, uuid, type, now);
+    return rebuildCache(env, uuid, type, now, from, to, cronSource);
   }
 
   if (
     Number(cached.bucket_ms || 0) !== bucketMs ||
-    Number(cached.retention_ms || 0) !== retentionMs
+    Number(cached.retention_ms || 0) !== retentionMs ||
+    String(cached.cron_source || "") !== String(cronSource || "")
   ) {
-    return rebuildCache(env, uuid, type, now);
+    return rebuildCache(env, uuid, type, now, from, to, cronSource);
   }
 
-  const latestTs = latestRowTimestamp(cached.rows);
-  if (!latestTs || latestTs < cutoff) {
-    return rebuildCache(env, uuid, type, now);
+  let rows = cached.rows;
+  let coverage = cacheCoverage(cached);
+  if (!coverage.from || !coverage.to) {
+    return rebuildCache(env, uuid, type, now, from, to, cronSource);
   }
 
-  const updateFrom = Math.max(cutoff, latestTs - overlapMs);
-  const incomingRows = await aggregateWindow(env, uuid, type, updateFrom, now);
-  const rows = mergeAggregatedRows(cached.rows, incomingRows, cutoff);
+  const segments = [];
+  if (from < coverage.from) {
+    segments.push([from, Math.min(to, coverage.from + overlapMs)]);
+  }
+
+  const latestCovered = Math.max(coverage.to, latestRowTimestamp(rows));
+  if (to > latestCovered || forceTailRefresh) {
+    const tailFrom = Math.max(cutoff, latestCovered ? latestCovered - overlapMs : from);
+    if (to > tailFrom) {
+      segments.push([tailFrom, to]);
+    }
+  }
+
+  for (const [segmentFrom, segmentTo] of segments) {
+    const incomingRows = await aggregateWindow(env, uuid, type, segmentFrom, segmentTo, cronSource);
+    rows = mergeAggregatedRows(rows, incomingRows, cutoff);
+    coverage = {
+      from: Math.min(coverage.from, segmentFrom),
+      to: Math.max(coverage.to, segmentTo),
+    };
+  }
+
   const payload = {
     ...cached,
+    version: 2,
     generated_at: now,
     bucket_ms: bucketMs,
     retention_ms: retentionMs,
+    covered_from: Math.max(cutoff, coverage.from),
+    covered_to: Math.max(coverage.to, to),
     uuid,
     type,
-    rows,
+    cron_source: cronSource || "",
+    rows: mergeAggregatedRows([], rows, cutoff),
   };
 
-  const written = await kvWrite(env, cacheKey(type, uuid), payload);
+  const key = cacheKey(type, uuid, cronSource);
+  const written = await kvWrite(env, key, payload);
   if (written) {
-    await touchIndex(env, cacheKey(type, uuid), payload, now);
+    await touchIndex(env, key, payload, now);
   }
   return { ...payload, cache_written: written };
 }
 
-async function getCachedOrRebuild(env, uuid, type, now) {
+async function getCachedOrRebuild(env, uuid, type, now, requestedFrom, requestedTo, cronSource) {
+  const retentionMs = envNumber(env, "RETENTION_MS", DEFAULT_RETENTION_MS);
   const cacheTtlMs = envNumber(env, "CACHE_TTL_MS", DEFAULT_CACHE_TTL_MS);
-  const cached = await kvRead(env, cacheKey(type, uuid));
-  if (cached && now - Number(cached.generated_at || 0) < cacheTtlMs) {
+  const { from, to } = clampWindow(now, retentionMs, requestedFrom, requestedTo);
+  const key = cacheKey(type, uuid, cronSource);
+  const cached = await kvRead(env, key);
+  const isFresh = cached && now - Number(cached.generated_at || 0) < cacheTtlMs;
+
+  if (cached && isFresh && coversRange(cached, from, to)) {
     return cached;
   }
 
-  const key = cacheKey(type, uuid);
-  let job = refreshJobs.get(key);
+  const jobKey = `${key}:${from}:${to}`;
+  let job = refreshJobs.get(jobKey);
   if (!job) {
-    job = (cached ? refreshCache(env, cached, uuid, type, now) : rebuildCache(env, uuid, type, now))
-      .finally(() => refreshJobs.delete(key));
-    refreshJobs.set(key, job);
+    job = (
+      cached
+        ? refreshCache(env, cached, uuid, type, now, from, to, cronSource, !isFresh)
+        : rebuildCache(env, uuid, type, now, from, to, cronSource)
+    ).finally(() => refreshJobs.delete(jobKey));
+    refreshJobs.set(jobKey, job);
   }
   return job;
+}
+
+function resultNumber(row, key) {
+  const value = row?.task_event_result?.[key];
+  return typeof value === "number" ? value : null;
+}
+
+function summarizePreview(rows, type, cronSource, sampleLimit) {
+  const list = rows
+    .filter(row => !cronSource || row.cron_source === cronSource)
+    .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+  const windowRows = list.slice(-sampleLimit);
+  const samples = windowRows.map(row => {
+    const value = resultNumber(row, type);
+    return value != null ? value : null;
+  });
+  while (samples.length < sampleLimit) samples.unshift(null);
+
+  let totalSuccess = 0;
+  let totalSamples = 0;
+  let totalFailures = 0;
+  let sum = 0;
+
+  for (const row of list) {
+    const successCount = Math.max(0, resultNumber(row, "success_count") ?? (row.success ? 1 : 0));
+    const failureCount = Math.max(0, resultNumber(row, "failure_count") ?? (row.success ? 0 : 1));
+    const sampleCount = Math.max(successCount + failureCount, resultNumber(row, "sample_count") ?? 1);
+    const value = resultNumber(row, type);
+    totalSamples += sampleCount;
+    totalSuccess += successCount;
+    totalFailures += failureCount;
+    if (value != null && successCount > 0) {
+      sum += value * successCount;
+    }
+  }
+
+  return {
+    ok: true,
+    mode: "preview",
+    type,
+    cron_source: cronSource || list[0]?.cron_source || "",
+    avg: totalSuccess ? sum / totalSuccess : null,
+    loss_rate: totalSamples ? (totalFailures / totalSamples) * 100 : 0,
+    samples,
+  };
 }
 
 async function listAllAgentUuids(env) {
@@ -476,12 +620,18 @@ async function listAllAgentUuids(env) {
 
 export default {
   async onCall(params, env) {
+    const now = Date.now();
     const uuid = String(params?.uuid || "").trim();
     const type = String(params?.type || "tcp_ping").trim();
     const cleanup = String(params?.cleanup || "").trim().toLowerCase();
+    const cronSource = String(params?.cron_source || "").trim();
+    const preview = parseBoolean(params?.preview);
+    const sampleLimit = Number(params?.sample_limit || DEFAULT_PREVIEW_SAMPLE_LIMIT) || DEFAULT_PREVIEW_SAMPLE_LIMIT;
+    const from = Number(params?.from || 0) || 0;
+    const to = Number(params?.to || now) || now;
 
     if (cleanup === "true" || cleanup === "1" || cleanup === "force") {
-      const result = await cleanupExpiredKeys(env, Date.now(), true);
+      const result = await cleanupExpiredKeys(env, now, true);
       return {
         ok: true,
         cleanup: result,
@@ -491,12 +641,18 @@ export default {
     if (!uuid || !TYPES.has(type)) {
       return { ok: false, error: "uuid and valid type are required" };
     }
-    await cleanupExpiredKeys(env, Date.now(), false);
-    const payload = await rebuildCache(env, uuid, type, Date.now());
+
+    await cleanupExpiredKeys(env, now, false);
+    const payload = await getCachedOrRebuild(env, uuid, type, now, from, to, cronSource);
+    const rows = filterRows(payload.rows, from, to, cronSource);
+    if (preview) {
+      return summarizePreview(rows, type, cronSource, sampleLimit);
+    }
+
     return {
       ok: true,
       generated_at: payload.generated_at,
-      rows: payload.rows.length,
+      rows: rows.length,
       cache_written: payload.cache_written,
     };
   },
@@ -514,11 +670,12 @@ export default {
     }
 
     const now = Date.now();
+    const retentionMs = envNumber(env, "RETENTION_MS", DEFAULT_RETENTION_MS);
     const cleanup = await cleanupExpiredKeys(env, now, true);
     const refreshed = [];
     for (const uuid of uuids) {
       for (const type of types) {
-        const payload = await rebuildCache(env, uuid, type, now);
+        const payload = await rebuildCache(env, uuid, type, now, now - retentionMs, now, "");
         refreshed.push({
           uuid,
           type,
@@ -543,21 +700,39 @@ export default {
       return json({ ok: false, error: "POST is required" }, 405);
     }
 
-    const { uuid, type, from, to, cron_source: cronSource } = await parseRouteParams(request);
+    const now = Date.now();
+    const {
+      uuid,
+      type,
+      from,
+      to,
+      cron_source: cronSource,
+      preview,
+      sample_limit: sampleLimit,
+    } = await parseRouteParams(request);
 
     if (!uuid) return json({ ok: false, error: "uuid is required" }, 400);
     if (!TYPES.has(type)) return json({ ok: false, error: "type must be tcp_ping or ping" }, 400);
 
-    await cleanupExpiredKeys(env, Date.now(), false);
-    const payload = await getCachedOrRebuild(env, uuid, type, Date.now());
+    await cleanupExpiredKeys(env, now, false);
+    const payload = await getCachedOrRebuild(env, uuid, type, now, from, to, cronSource);
+    const rows = filterRows(payload.rows, from, to, cronSource);
+
+    if (preview) {
+      return json(summarizePreview(rows, type, cronSource, sampleLimit));
+    }
+
     return json({
       ok: true,
       generated_at: payload.generated_at,
       bucket_ms: payload.bucket_ms,
       retention_ms: payload.retention_ms,
+      covered_from: payload.covered_from,
+      covered_to: payload.covered_to,
       uuid,
       type,
-      rows: filterRows(payload.rows, from, to, cronSource),
+      cron_source: cronSource || "",
+      rows,
     });
   },
 };
