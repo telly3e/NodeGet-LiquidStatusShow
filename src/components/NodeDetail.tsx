@@ -1,10 +1,10 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, X } from 'lucide-react'
 import {
   Area,
   AreaChart,
+  ComposedChart,
   Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -20,13 +20,11 @@ import { deriveUsage, displayName, distroLogo, osLabel, virtLabel } from '../uti
 import { cycleProgress, hasCost, remainingDays, remainingValue } from '../utils/cost'
 import { cn, strokeColor } from '../utils/cn'
 import {
-  buildLatencyHealth,
   buildLatencyChart,
   computeLatencyStats,
   lossKey,
   type ChartPoint,
   type ChartSeries,
-  type LatencyHealthRow,
   type LatencyStats,
 } from '../utils/latency'
 import { useNodeLatency } from '../hooks/useNodeLatency'
@@ -47,7 +45,6 @@ const LATENCY_ACTIVE_DOT = {
 }
 
 const LATENCY_CHART_MAX_POINTS = 720
-const LATENCY_HEALTH_BINS = 120
 
 const LATENCY_RANGE = { label: '24h', ms: 24 * 60 * 60 * 1000 } as const
 const LATENCY_LOSS_COLOR = '#ef4444'
@@ -430,6 +427,10 @@ interface LatencyBlockProps {
 
 const ms = (v: number) => `${v.toFixed(1)} ms`
 
+interface LatencySourceSummary extends LatencyStats {
+  latest: number | null
+}
+
 interface LatencyTooltipProps {
   active?: boolean
   payload?: Array<{ payload?: ChartPoint }>
@@ -507,35 +508,88 @@ function LatencyBlock({ title, rows, type, loading, rangeLabel, rangeMs }: Laten
     [rows, type],
   )
   const stats = useMemo(() => computeLatencyStats(rows, type), [rows, type])
-  const [hidden, setHidden] = useState<Set<string>>(() => new Set())
+  const sourceSummaries = useMemo<LatencySourceSummary[]>(
+    () =>
+      stats.map(stat => {
+        const latest = [...rows]
+          .reverse()
+          .find(row => row.cron_source === stat.name && typeof row.task_event_result?.[type] === 'number')
+        return {
+          ...stat,
+          latest: typeof latest?.task_event_result?.[type] === 'number' ? Number(latest.task_event_result[type]) : null,
+        }
+      }),
+    [rows, stats, type],
+  )
+  const [activeNames, setActiveNames] = useState<string[]>([])
   const empty = data.length === 0
   const latestTs = data.at(-1)?.t ?? Date.now()
   const requestedStart = latestTs - rangeMs
   const actualStart = data[0]?.t
   const actualSpan =
     actualStart != null && data.length > 1 ? Math.max(0, latestTs - actualStart) : 0
-  // 探测高频时单次查询的 limit 可能覆盖不到完整请求窗口，曲线只到实际跨度；
-  // 让连通性条带与曲线用同一时间跨度，两个时间轴对齐、不出现错位的空白。
-  const healthRangeMs = actualSpan > 0 ? actualSpan : rangeMs
-  const healthRows = useMemo(
-    () => buildLatencyHealth(rows, type, { rangeMs: healthRangeMs, maxBins: LATENCY_HEALTH_BINS }),
-    [healthRangeMs, rows, type],
-  )
 
-  const visibleSeries = series.filter(s => !hidden.has(s.name))
-  const visibleHealthRows = healthRows.filter(row => !hidden.has(row.name))
+  const visibleSeries =
+    activeNames.length > 0 ? series.filter(s => activeNames.includes(s.name)) : series
+  const activeLossOverlayKey =
+    visibleSeries.length === 1 ? lossKey(visibleSeries[0].name) : null
 
   const toggle = (name: string) =>
-    setHidden(prev => {
-      const next = new Set(prev)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
-      return next
-    })
+    setActiveNames(prev => (prev.includes(name) ? prev.filter(item => item !== name) : [...prev, name]))
 
   return (
     <Section title={`${title} · 最近 ${rangeLabel}`}>
+      {sourceSummaries.length > 0 && (
+        <div className="mb-4 overflow-hidden rounded-lg border bg-border/50 p-px">
+          <div className="flex flex-wrap gap-px">
+            {sourceSummaries.map(summary => (
+              <button
+                key={summary.name}
+                type="button"
+                onClick={() => toggle(summary.name)}
+                data-active={activeNames.includes(summary.name)}
+                className={cn(
+                  'min-w-fit flex-1 bg-background/90 px-4 py-3 text-left transition-[background-color,box-shadow,color] hover:bg-muted/40',
+                  'border-b-2 border-b-transparent data-[active=true]:bg-muted/60',
+                )}
+                style={{
+                  borderBottomColor: activeNames.includes(summary.name) ? summary.color : 'transparent',
+                }}
+              >
+                <div className="flex flex-col gap-1.5 whitespace-nowrap">
+                  <span className="text-xs text-muted-foreground">{summary.name}</span>
+                  <span className={cn('font-mono text-lg font-bold leading-none', latencyValueTone(summary.latest))}>
+                  {summary.latest == null ? '—' : `${summary.latest < 1 ? '<1' : summary.latest.toFixed(1)}ms`}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    丢包{' '}
+                    <span className={cn('font-semibold', latencyLossTone(summary.lossRate))}>
+                      {summary.lossRate.toFixed(summary.lossRate < 10 ? 1 : 0)}%
+                    </span>
+                    {' · '}
+                    波动{' '}
+                    <span className={cn('font-semibold', latencyJitterTone(summary.jitter))}>
+                      {summary.jitter == null ? '—' : `${summary.jitter.toFixed(1)}ms`}
+                    </span>
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="relative h-60">
+        {activeNames.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setActiveNames([])}
+            className="absolute right-2 top-2 z-10 inline-flex items-center gap-1 rounded-md border bg-background/90 px-2 py-1 text-[11px] text-muted-foreground backdrop-blur hover:text-foreground"
+          >
+            <X className="h-3 w-3" />
+            清除筛选 ({activeNames.length})
+          </button>
+        )}
         {empty && (
           <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
             {loading ? '加载中…' : `暂无 ${type} 数据`}
@@ -543,7 +597,7 @@ function LatencyBlock({ title, rows, type, loading, rangeLabel, rangeMs }: Laten
         )}
         {!empty && (
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <ComposedChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <XAxis
                 dataKey="t"
                 type="number"
@@ -566,6 +620,17 @@ function LatencyBlock({ title, rows, type, loading, rangeLabel, rangeMs }: Laten
                   <LatencyTooltip active={props.active} payload={props.payload} series={visibleSeries} />
                 )}
               />
+              {activeLossOverlayKey && (
+                <Area
+                  type="stepAfter"
+                  dataKey={activeLossOverlayKey}
+                  stroke="none"
+                  fill={LATENCY_LOSS_COLOR}
+                  fillOpacity={0.14}
+                  isAnimationActive={false}
+                  connectNulls={false}
+                />
+              )}
               {visibleSeries.map(s => (
                 <Line
                   key={s.name}
@@ -583,7 +648,7 @@ function LatencyBlock({ title, rows, type, loading, rangeLabel, rangeMs }: Laten
                   isAnimationActive={false}
                 />
               ))}
-            </LineChart>
+            </ComposedChart>
           </ResponsiveContainer>
         )}
         {!empty && loading && (
@@ -591,135 +656,35 @@ function LatencyBlock({ title, rows, type, loading, rangeLabel, rangeMs }: Laten
         )}
       </div>
 
-      {visibleHealthRows.length > 0 && (
-        <LatencyHealthStrip rows={visibleHealthRows} rangeMs={healthRangeMs} />
-      )}
-
       {stats.length > 0 && (
-        <div className="mt-3 border-t pt-3">
-          <div className="px-2 pb-2 text-[11px] text-muted-foreground">
-            {rows.length} 个样本 · {series.length} 来源 · 实际跨度 {formatDuration(actualSpan)}
-          </div>
-          <div className="flex items-center px-2 pb-1 text-[11px] text-muted-foreground">
-            <span className="flex-1">来源</span>
-            <span className="w-20 text-right">平均延迟</span>
-            <span className="w-16 text-right">抖动</span>
-            <span className="w-14 text-right">丢包率</span>
-          </div>
-          <div className="space-y-0.5">
-            {stats.map(s => (
-              <LatencyStatsRow
-                key={s.name}
-                stat={s}
-                hidden={hidden.has(s.name)}
-                onToggle={() => toggle(s.name)}
-              />
-            ))}
-          </div>
+        <div className="mt-3 flex items-center justify-between gap-3 px-1 text-[11px] text-muted-foreground">
+          <span>{rows.length} 个样本 · {series.length} 来源</span>
+          <span>实际跨度 {formatDuration(actualSpan)}</span>
         </div>
       )}
     </Section>
   )
 }
 
-function LatencyHealthStrip({ rows, rangeMs }: { rows: LatencyHealthRow[]; rangeMs: number }) {
-  return (
-    <div className="glass-panel mt-3 rounded-md border border-dashed p-3.5">
-      <div className="mb-2 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-        <span>连通性</span>
-        <span className="flex items-center gap-2">
-          <HealthLegend color="bg-emerald-500" label="正常" />
-          <HealthLegend color="bg-red-500" label="失败/丢包" />
-          <HealthLegend color="bg-muted-foreground/35" label="无样本" />
-        </span>
-      </div>
-      <div className="space-y-1.5">
-        {rows.map(row => (
-          <div key={row.name} className="grid grid-cols-[minmax(72px,0.8fr)_minmax(0,3fr)] items-center gap-2">
-            <span className="truncate text-[11px] text-muted-foreground" title={row.name}>
-              {row.name}
-            </span>
-            <div
-              className="grid h-4 items-end gap-1 overflow-hidden"
-              style={{ gridTemplateColumns: `repeat(${row.bins.length}, minmax(0, 1fr))` }}
-            >
-              {row.bins.map((bin, index) => (
-                <span
-                  key={index}
-                  className={cn(
-                    'h-4 w-full min-w-0 rounded-full',
-                    bin.state === 'ok' && 'bg-emerald-500',
-                    bin.state === 'loss' && 'bg-red-500',
-                    bin.state === 'missing' && 'bg-muted-foreground/25',
-                  )}
-                  title={`${formatLatencyTick(bin.start, rangeMs)} - ${formatLatencyTick(bin.end, rangeMs)}: ${healthLabel(bin.state)}`}
-                />
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
+function latencyValueTone(value: number | null) {
+  if (value == null || value <= 50) return 'text-emerald-500'
+  if (value <= 100) return 'text-lime-400'
+  if (value <= 180) return 'text-yellow-400'
+  if (value <= 250) return 'text-orange-500'
+  return 'text-red-500'
 }
 
-function HealthLegend({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      <span className={cn('h-3 w-1.5 rounded-full', color)} />
-      {label}
-    </span>
-  )
+function latencyLossTone(lossRate: number) {
+  if (lossRate < 0.1) return 'text-muted-foreground'
+  if (lossRate <= 3) return 'text-yellow-400'
+  if (lossRate <= 10) return 'text-orange-500'
+  return 'text-red-500'
 }
 
-function healthLabel(state: 'ok' | 'loss' | 'missing') {
-  if (state === 'ok') return '正常'
-  if (state === 'loss') return '失败/丢包'
-  return '无样本/离线'
-}
-
-function LatencyStatsRow({
-  stat,
-  hidden,
-  onToggle,
-}: {
-  stat: LatencyStats
-  hidden: boolean
-  onToggle: () => void
-}) {
-  const { name, color, avg, jitter, lossRate } = stat
-
-  return (
-    <div
-      onClick={onToggle}
-      className={cn(
-        'flex items-center px-2 py-1 rounded-md text-xs cursor-pointer select-none transition-opacity hover:bg-muted/60',
-        hidden && 'opacity-35',
-      )}
-    >
-      <span className="flex items-center gap-2 flex-1 min-w-0">
-        <span
-          className="inline-block w-4 h-0.5 rounded-full shrink-0"
-          style={{ background: color }}
-        />
-        <span className="truncate">{name}</span>
-      </span>
-      <span className="w-20 text-right tabular-nums font-mono">
-        {avg != null ? ms(avg) : '—'}
-      </span>
-      <span className="w-16 text-right tabular-nums font-mono">
-        {jitter != null ? ms(jitter) : '—'}
-      </span>
-      <span
-        className={cn(
-          'w-14 text-right tabular-nums font-mono',
-          lossRate >= 5 && 'text-red-500 font-medium',
-        )}
-      >
-        {lossRate.toFixed(1)}%
-      </span>
-    </div>
-  )
+function latencyJitterTone(jitter: number | null) {
+  if (jitter == null || jitter < 10) return 'text-emerald-500'
+  if (jitter < 30) return 'text-yellow-500'
+  return 'text-red-500'
 }
 
 function CostSection({ meta, cnyRates }: { meta: NodeMeta; cnyRates: Record<string, number> }) {
