@@ -8,10 +8,11 @@ const FAST_REFRESH_MS = 10_000
 const SLOW_REFRESH_MS = 60_000
 const LONG_REFRESH_MS = 5 * 60_000
 const REFRESH_FLOOR_MS = 30_000
-const INCREMENTAL_OVERLAP_MS = 2 * 60_000
+const INCREMENTAL_OVERLAP_MS = 2 * 60 * 1000
 const ACC_CAP = 50_000
 const QUERY_TIMEOUT_MS = 20_000
-const QUERY_CONCURRENCY = 2
+const RAW_QUERY_CONCURRENCY = 2
+const AGGREGATE_QUERY_CONCURRENCY = 4
 
 interface NodeLatencyOptions {
   aggregateRoute?: string
@@ -29,30 +30,56 @@ interface AccEntry {
   lastFetchAt: number
 }
 
+export type AggregateRequestPayload = Record<string, string | number | boolean | null | undefined>
+
 const store = new Map<string, AccEntry>()
 const inFlight = new Map<string, Promise<AccEntry>>()
-const queue: Array<() => void> = []
-let activeQueries = 0
+const rawQueue: Array<() => void> = []
+const aggregateQueue: Array<() => void> = []
+let activeRawQueries = 0
+let activeAggregateQueries = 0
 
-function runNextQuery() {
-  if (activeQueries >= QUERY_CONCURRENCY) return
-  const next = queue.shift()
+function runNextRawQuery() {
+  if (activeRawQueries >= RAW_QUERY_CONCURRENCY) return
+  const next = rawQueue.shift()
   if (!next) return
-  activeQueries += 1
+  activeRawQueries += 1
   next()
 }
 
-function scheduleQuery<T>(fn: () => Promise<T>): Promise<T> {
+function scheduleRawQuery<T>(fn: () => Promise<T>): Promise<T> {
   return new Promise((resolve, reject) => {
-    queue.push(() => {
+    rawQueue.push(() => {
       fn()
         .then(resolve, reject)
         .finally(() => {
-          activeQueries -= 1
-          runNextQuery()
+          activeRawQueries -= 1
+          runNextRawQuery()
         })
     })
-    runNextQuery()
+    runNextRawQuery()
+  })
+}
+
+function runNextAggregateQuery() {
+  if (activeAggregateQueries >= AGGREGATE_QUERY_CONCURRENCY) return
+  const next = aggregateQueue.shift()
+  if (!next) return
+  activeAggregateQueries += 1
+  next()
+}
+
+function scheduleAggregateQuery<T>(fn: () => Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    aggregateQueue.push(() => {
+      fn()
+        .then(resolve, reject)
+        .finally(() => {
+          activeAggregateQueries -= 1
+          runNextAggregateQuery()
+        })
+    })
+    runNextAggregateQuery()
   })
 }
 
@@ -105,7 +132,7 @@ function latencyRowLimit(windowMs: number) {
   return 60_000
 }
 
-function resolveAggregateEndpoint(backendUrl: string, route: string) {
+export function resolveAggregateEndpoint(backendUrl: string, route: string) {
   const trimmed = route.trim()
   if (!trimmed) return null
   if (/^https?:\/\//i.test(trimmed)) return trimmed
@@ -114,9 +141,7 @@ function resolveAggregateEndpoint(backendUrl: string, route: string) {
   base.protocol = base.protocol === 'wss:' ? 'https:' : 'http:'
   base.search = ''
   base.hash = ''
-
-  const pathname = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
-  base.pathname = pathname
+  base.pathname = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
   return base.toString()
 }
 
@@ -169,6 +194,26 @@ async function fetchJsonWithTimeout(url: string, timeoutMs: number, init?: Reque
   }
 }
 
+export async function postAggregateRequest(
+  endpoint: string,
+  payload: AggregateRequestPayload,
+  timeoutMs = QUERY_TIMEOUT_MS,
+) {
+  const url = new URL(endpoint)
+  for (const [key, value] of Object.entries(payload)) {
+    if (value == null || value === '') continue
+    url.searchParams.set(key, String(value))
+  }
+
+  return scheduleAggregateQuery(() =>
+    fetchJsonWithTimeout(url.toString(), timeoutMs, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  )
+}
+
 async function fetchAggregatedRows(
   entry: PoolEntry,
   route: string,
@@ -181,23 +226,12 @@ async function fetchAggregatedRows(
   const endpoint = resolveAggregateEndpoint(entry.backendUrl, route)
   if (!endpoint) return null
 
-  const url = new URL(endpoint)
-  url.searchParams.set('uuid', uuid)
-  url.searchParams.set('type', type)
-  url.searchParams.set('from', String(cutoff))
-  url.searchParams.set('to', String(now))
-  if (cronSource) url.searchParams.set('cron_source', cronSource)
-
-  const payload = await fetchJsonWithTimeout(url.toString(), QUERY_TIMEOUT_MS, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      uuid,
-      type,
-      from: cutoff,
-      to: now,
-      cron_source: cronSource ?? '',
-    }),
+  const payload = await postAggregateRequest(endpoint, {
+    uuid,
+    type,
+    from: cutoff,
+    to: now,
+    cron_source: cronSource ?? '',
   })
   const rows =
     Array.isArray(payload)
@@ -276,7 +310,7 @@ export function useNodeLatency(
         : [cutoff, now]
 
       try {
-        const fresh = await scheduleQuery(() =>
+        const fresh = await scheduleRawQuery(() =>
           taskQuery(
             entry.client,
             [{ uuid }, { type }, ...cronSourceFilter, { timestamp_from_to: requestWindow }, { limit }],
